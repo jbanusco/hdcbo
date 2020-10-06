@@ -1,0 +1,15 @@
+name: py37
+channels:
+- pytorch
+- conda-forge # nibabel, nilearn
+- defaults
+dependencies:
+- python=3
+- numpy
+- seaborn
+- matplotlib=2.*
+- scipy
+- pandas
+- pytorch-cpu
+- torchvision-cpu
+- scikit-learn

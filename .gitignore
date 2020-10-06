@@ -1,0 +1,26 @@
+# Ignore Logs and temporary folders
+logs
+*.log
+runs
+tmp
+*.pth
+*.stderr
+*.stdout
+*.out
+*.error
+*.png
+events.*
+
+# Ignore the build directory
+/dist
+*.egg-info
+
+# The file containing environment variables
+.env
+
+# Ignore IDE specific files
+.idea/
+.vscode/
+*.sw*
+__pycache__
+
