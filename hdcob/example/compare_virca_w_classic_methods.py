@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.sampler import SubsetRandomSampler
-from hdcob.cvaerc.cvaerc import CVAERC
+from hdcob.virca.virca import VIRCA
 from hdcob.vi.vi_models import CVAE
 from hdcob.vi.test_autoencoders import train_vi
 from hdcob.gp.gaussian_process import RegressionGP
 from hdcob.gp.test_gp_single_input_output import train_gp
-from hdcob.cvaerc.test_model import train_cvaerc
-from hdcob.cvaerc.generator_synthetic import SyntheticDataset
+from hdcob.virca.test_model import train_virca
+from hdcob.virca.generator_synthetic import SyntheticDataset
 from hdcob.config import tensor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.model_selection import cross_val_score
@@ -148,7 +148,7 @@ if __name__ == '__main__':
         test_loader = DataLoader(DataSet, batch_size=len(test_idx), sampler=test_sampler)
 
     # ==================================================================================================================
-    # =========================================== Run CVAERC ===========================================================
+    # =========================================== Run VIRCA ============================================================
 
     # Initial conditions
     SIGMA_GP = 1
@@ -160,23 +160,23 @@ if __name__ == '__main__':
     HIDDEN_DIM = 0
     KERNEL = "RBF_ML"
 
-    path_test = os.path.join(results_folder, f"CVAERC_L{LATENT_DIM}_H{HIDDEN_DIM}_K{KERNEL}_{LR}")
-    cvaerc_model = CVAERC(input_dim=INPUT_DIM,
-                          miss_dim=MISSING_DIM,
-                          cond_dim=COND_DIM,
-                          latent_dim=LATENT_DIM,
-                          hidden_dim=HIDDEN_DIM,
-                          target_dim=OUTPUT_DIM,
-                          init_sigma_gp=SIGMA_GP,
-                          init_lamda_gp=LAMDA_GP,
-                          init_mean_gp=MEAN_GP,
-                          init_noise_gp=NOISE_GP,
-                          init_noise_vi=NOISE_VI,
-                          bias=BIAS,
-                          kernel=f'{KERNEL}',
-                          prior_noise=None,
-                          use_param=PARAM)
-    # cvaerc_model.add_prior_gp("sigma", prior={'mean': tensor([0]), 'logvar': tensor([1])})  # Weak prior
+    path_test = os.path.join(results_folder, f"VIRCA_L{LATENT_DIM}_H{HIDDEN_DIM}_K{KERNEL}_{LR}")
+    virca_model = VIRCA(input_dim=INPUT_DIM,
+                        miss_dim=MISSING_DIM,
+                        cond_dim=COND_DIM,
+                        latent_dim=LATENT_DIM,
+                        hidden_dim=HIDDEN_DIM,
+                        target_dim=OUTPUT_DIM,
+                        init_sigma_gp=SIGMA_GP,
+                        init_lamda_gp=LAMDA_GP,
+                        init_mean_gp=MEAN_GP,
+                        init_noise_gp=NOISE_GP,
+                        init_noise_vi=NOISE_VI,
+                        bias=BIAS,
+                        kernel=f'{KERNEL}',
+                        prior_noise=None,
+                        use_param=PARAM)
+    # virca_model.add_prior_gp("sigma", prior={'mean': tensor([0]), 'logvar': tensor([1])})  # Weak prior
 
     optim_options = {'epochs': EPOCHS,
                      'load_previous': LOAD_PREVIOUS,
@@ -192,15 +192,15 @@ if __name__ == '__main__':
                      'hp_params': {'lr': LR, 'latent': LATENT_DIM, 'hidden': HIDDEN_DIM, 'batch_size': BATCH_SIZE,
                                    'kernel': KERNEL}}
 
-    groups = [dict(params=cvaerc_model._VI.parameters(), lr=LR),
-              dict(params=cvaerc_model._GP.parameters(), lr=LR)]
+    groups = [dict(params=virca_model._VI.parameters(), lr=LR),
+              dict(params=virca_model._GP.parameters(), lr=LR)]
     optimizer = optim.Adam(groups)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=GRADIENT_DECAY, gamma=0.1)
     # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[WARM_UP_KL], gamma=0.1)
-    train_cvaerc(cvaerc_model, optimizer, path_test, train_loader, test_loader, optim_options, scheduler)
+    train_virca(virca_model, optimizer, path_test, train_loader, test_loader, optim_options, scheduler)
 
-    cvaerc_model.eval()
-    ours_target, _, ours_miss = cvaerc_model.predict(DataSet.input_data[test_idx], DataSet.cond_data[test_idx])
+    virca_model.eval()
+    ours_target, _, ours_miss = virca_model.predict(DataSet.input_data[test_idx], DataSet.cond_data[test_idx])
 
     # ==================================================================================================================
     # ========================================= Classic methods ========================================================

@@ -4,11 +4,8 @@ from hdcob.gp.gaussian_process import RegressionGP
 from hdcob.vi.vi_models import CVAE, VAE
 
 
-class CVAERC(nn.Module):
-    # VIRCA
-    """ Variational  imp adn reg framework based on conditional autoencoding """
-
-    """ Conditional Variational Autoencoder Regression Constrained """
+class VIRCA(nn.Module):
+    """ Variational imputation and regression framework based on conditional autoencoding """
     def __init__(self,
                  input_dim: int,
                  miss_dim: int,
@@ -43,7 +40,7 @@ class CVAERC(nn.Module):
         :param prior_noise: Prior in the VI decoder variance, in case that a parameter is used
         :param use_param: Use a parameter or not for the decoder variance
         """
-        super(CVAERC, self).__init__()
+        super(VIRCA, self).__init__()
 
         # VI
         self._miss_dim = miss_dim

@@ -15,7 +15,7 @@ setup(
     author_email='jaume.banus-cobo@inria.fr',
     description='Heart dynamics conditioned on brain',
     packages=["hdcob",
-              "hdcob/cvaerc",
+              "hdcob/virca",
               "hdcob/gp",
               "hdcob/vi",
               "hdcob/utilities"],

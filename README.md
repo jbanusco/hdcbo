@@ -76,5 +76,11 @@ To install this package in develop mode, type the following command line:
 python setup.py develop
 ```
 
+# Examples
+
+In the folder hdcob/example you will find a code training our model VIRCA (Variational imputation and regression framework based on conditional autoencoding) and comparing it
+to classical imputation approaches in synthetic data. 
+
+
 
 

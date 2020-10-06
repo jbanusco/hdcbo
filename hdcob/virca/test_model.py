@@ -5,9 +5,9 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
 from hdcob.vi.plots_vi import plot_latent
 from hdcob.gp.plots_gp import plot_ard
-from hdcob.cvaerc.plots_cvaerc import plot_residual, plot_predictions, plot_boxplot_params, plot_correlations
-from hdcob.cvaerc.generator_synthetic import SyntheticDataset
-from hdcob.cvaerc.cvaerc import CVAERC
+from hdcob.virca.plots_virca import plot_residual, plot_predictions, plot_boxplot_params, plot_correlations
+from hdcob.virca.generator_synthetic import SyntheticDataset
+from hdcob.virca.virca import VIRCA
 from hdcob.utilities.metrics import mae, mse
 from hdcob.config import *
 import argparse
@@ -76,11 +76,11 @@ def load_data(model, optimizer, filename, scheduler = None):
     return misc
 
 
-def train_cvaerc(model, optimizer, save_path, train_loader, test_loader, options,
+def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
                  scheduler=None):
     """ Train variational inference model """
     log = logging.getLogger(LOGGER_NAME)
-    log.info("Training CVAERC")
+    log.info("Training VIRCA")
 
     # Writer where to save the log files
     os.makedirs(save_path, exist_ok=True)
@@ -518,21 +518,21 @@ if __name__ == '__main__':
     BIAS = False
 
     path_test = os.path.join(runs_path, f"test_L{LATENT_DIM}_H{HIDDEN_DIM}_K{KERNEL}_{LR}")
-    model = CVAERC(input_dim=INPUT_DIM,
-                   miss_dim=MISSING_DIM,
-                   cond_dim=COND_DIM,
-                   latent_dim=LATENT_DIM,
-                   hidden_dim=HIDDEN_DIM,
-                   target_dim=OUTPUT_DIM,
-                   init_sigma_gp=SIGMA_GP,
-                   init_lamda_gp=LAMDA_GP,
-                   init_mean_gp=MEAN_GP,
-                   init_noise_gp=NOISE_GP,
-                   init_noise_vi=NOISE_VI,
-                   bias=BIAS,
-                   kernel=f'{KERNEL}',
-                   prior_noise=None,
-                   use_param=PARAM)
+    model = VIRCA(input_dim=INPUT_DIM,
+                  miss_dim=MISSING_DIM,
+                  cond_dim=COND_DIM,
+                  latent_dim=LATENT_DIM,
+                  hidden_dim=HIDDEN_DIM,
+                  target_dim=OUTPUT_DIM,
+                  init_sigma_gp=SIGMA_GP,
+                  init_lamda_gp=LAMDA_GP,
+                  init_mean_gp=MEAN_GP,
+                  init_noise_gp=NOISE_GP,
+                  init_noise_vi=NOISE_VI,
+                  bias=BIAS,
+                  kernel=f'{KERNEL}',
+                  prior_noise=None,
+                  use_param=PARAM)
 
     # model.add_prior_gp("lamda", prior={'mean': tensor([1]), 'logvar': tensor([0])})  # Weak prior
     # model.add_prior_gp("sigma", prior={'mean': tensor([-1]), 'logvar': tensor([-1])})  # Weak prior
@@ -541,4 +541,4 @@ if __name__ == '__main__':
     groups = [dict(params=model._VI.parameters(), lr=LR*1),
               dict(params=model._GP.parameters(), lr=LR*1)]
     optimizer = optim.Adam(groups)
-    train_cvaerc(model, optimizer, path_test, train_loader, test_loader, optim_options)
+    train_virca(model, optimizer, path_test, train_loader, test_loader, optim_options)
