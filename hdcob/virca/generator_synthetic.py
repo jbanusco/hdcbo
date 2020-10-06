@@ -11,6 +11,7 @@ class GeneratorJoint(torch.nn.Module):
             n_miss=3,  # Missing data (also input to GP)
             n_target=5,  # GP target data
             seed=100,
+            vae=False,  # Variational autoencoder or not
     ):
         super().__init__()
 
@@ -22,32 +23,40 @@ class GeneratorJoint(torch.nn.Module):
 
         #  Save random state (http://archive.is/9glXO)
         np.random.seed(seed)  # or None
-        # self.random_state = np.random.get_state()  # get the initial state of the RNG
+
+        if vae:
+            self.Zt = None
+        else:
+            # Trans of Z.
+            w_ = np.random.uniform(-1, 1, (self.lat_dim, self.n_input + self.n_conditional))
+            u, s, vt = np.linalg.svd(w_, full_matrices=False)
+            w = u if self.lat_dim >= (self.n_input + self.n_conditional) else vt
+            Zt = torch.nn.Linear(self.n_input + self.n_conditional, self.lat_dim, bias=False)
+            Zt.requires_grad_(False)
+            Zt.weight.data = torch.FloatTensor(w)
+            self.Zt = Zt
 
         # Condition also on the fix input of the GP
-        w_ = np.random.uniform(-1, 1, (self.n_miss, self.lat_dim + self.n_conditional + self.n_input))
-        # w_ = np.random.uniform(-1, 1, (self.n_miss, self.lat_dim + self.n_conditional))
+        w_ = np.random.uniform(-1, 1, (self.n_miss, self.lat_dim + self.n_conditional))
 
         u, s, vt = np.linalg.svd(w_, full_matrices=False)
-        w = u if self.n_miss >= (self.lat_dim + self.n_conditional + self.n_input) else vt
-        W = torch.nn.Linear(self.lat_dim + self.n_conditional + self.n_input, self.n_miss, bias=False)
+        w = u if self.n_miss >= (self.lat_dim + self.n_conditional) else vt
+        W = torch.nn.Linear(self.lat_dim + self.n_conditional, self.n_miss, bias=False)
         W.requires_grad_(False)
         W.weight.data = torch.FloatTensor(w)
         self.W = W
 
-        # 2nd random transformation
+        # Linear random transformation of the input+missing data (input GP) + sin activation
         w2_ = np.random.uniform(-1, 1, (self.n_target, self.n_miss + self.n_input))
-        # w2_ = np.random.randn(self.n_target, self.n_miss + self.n_input)
         u, s, vt = np.linalg.svd(w2_, full_matrices=False)
         w2 = u if self.n_target >= (self.n_miss + self.n_input) else vt
-        # w2 = np.random.uniform(-1, 1, (self.n_target, self.n_miss + self.n_input))
         W2 = torch.nn.Linear(self.n_input + self.n_miss, self.n_target, bias=False)
+        # w2 = [[1, 0, 0.3, 0],
+        #       [0, 2, 0, 1],
+        #       [0, 0, 2, 0.5]]
         W2.requires_grad_(False)
         W2.weight.data = torch.FloatTensor(w2)
-        # self.W2 = W2
         self.W2 = lambda x: torch.sin(W2(x))
-        # self.W2 = lambda x: W2(torch.sin(x))
-        # self.W2 = lambda x: torch.sin(x)
 
     def forward(self, z, input_data, cond_data, noise_lvl=0.1):
         if type(z) == np.ndarray:
@@ -57,14 +66,13 @@ class GeneratorJoint(torch.nn.Module):
         assert input_data.size(1) == self.n_input
         assert cond_data.size(1) == self.n_conditional
 
-        # input_to_first = torch.cat((z, cond_data), dim=1)
-        input_to_first = torch.cat((z, cond_data, input_data), dim=1)
+        if self.Zt is not None:
+            z = self.Zt(torch.cat((input_data, cond_data), dim=1))
+        input_to_first = torch.cat((z, cond_data), dim=1)
 
         missing_data = self.W(input_to_first)
         noise_miss = tensor(np.random.randn(missing_data.size(0), missing_data.size(1))) * noise_lvl
-        # missing_data += noise_miss
 
-        # noise_input = tensor(np.random.randn(input_data.size(0), input_data.size(1))) * noise_lvl
         x = torch.cat((input_data, missing_data), dim=1)
         assert x.size(1) == (self.n_input + self.n_miss)
 
@@ -86,7 +94,8 @@ class SyntheticDataset(Dataset):
                  miss_dim=3,
                  target_dim=5,
                  seed=100,
-                 noise_lvl=0.1):
+                 noise_lvl=0.1,
+                 vae=False):
 
         self.num_samples = num_samples
         self.lat_dim = lat_dim
@@ -95,6 +104,7 @@ class SyntheticDataset(Dataset):
         self.miss_dim = miss_dim
         self.target_dim = target_dim
         self.noise_lvl = noise_lvl
+        self.vae = vae
 
         np.random.seed(seed)
 
@@ -109,6 +119,7 @@ class SyntheticDataset(Dataset):
             n_miss=self.miss_dim,  # Missing data (also input to GP)
             n_target=self.target_dim,  # GP target data
             seed=seed,
+            vae=self.vae,
         )
 
         self.missing_data, self.target_data = self.generator(z, self.input_data, self.cond_data, self.noise_lvl)

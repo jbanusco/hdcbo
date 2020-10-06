@@ -33,11 +33,9 @@ def plot_boxplot_params(input_data,
         names_target = [f"T{ix}" for ix in range(target_data.shape[1])]
 
     # Get dataframes
-    data_input = pd.DataFrame(data=input_data.cpu().data.numpy(), columns=names_input)
     data_missing = pd.DataFrame(data=missing_data.cpu().data.numpy(), columns=names_missing)
     data_target = pd.DataFrame(data=target_data.cpu().data.numpy(), columns=names_target)
 
-    # data_estimated = pd.concat([data_input, data_missing, data_target], axis=1)
     data_estimated = pd.concat([data_missing, data_target], axis=1)
     data_estimated["type"] = "Estim."
 
@@ -46,7 +44,6 @@ def plot_boxplot_params(input_data,
         g_data_missing = pd.DataFrame(data=ground_missing.cpu().data.numpy(), columns=names_missing)
         g_data_target = pd.DataFrame(data=ground_target.cpu().data.numpy(), columns=names_target)
 
-        # data_ground = pd.concat([data_input, g_data_missing, g_data_target], axis=1)
         data_ground = pd.concat([g_data_missing, g_data_target], axis=1)
         data_ground["type"] = "Target"
 
@@ -90,13 +87,14 @@ def plot_predictions(model,
         save_gp_filename = None
 
     if model.condition:
+        input_data = [x, x_cond]
         # input_data = [x_miss, x_cond]
-        input_data = [x_miss, torch.cat((x_cond, x), dim=1)]
     else:
         input_data = [x_miss]
 
     # VI
-    fig_pred_vi = plot_predictions_vi(model._VI, input_data, save_path=save_vi_filename)
+    fig_pred_vi = plot_predictions_vi(model._VI, input_data, save_path=save_vi_filename,
+                                      x_rec=x_miss)
 
     # GP
     with torch.no_grad():
@@ -112,12 +110,8 @@ def plot_predictions(model,
 
     x_names = input_features_names + miss_features_names
 
-    if y.shape[1] > 1:
-        fig_pred_gp, _ = plot_multiple_predictions_gp(model._GP, x_train, y, num_samples=0, shade=True,
-                                                      x_names=x_names, save_filename=save_gp_filename)
-    else:
-        fig_pred_gp, _ = plot_predictions_gp(model._GP, x_train, y, num_samples=0, shade=True,
-                                             save_filename=save_gp_filename, x_names=x_names)
+    fig_pred_gp, _ = plot_multiple_predictions_gp(model._GP, x_train, y, num_samples=0, shade=True,
+                                                  x_names=x_names, save_filename=save_gp_filename)
 
     return fig_pred_vi, fig_pred_gp
 
@@ -140,12 +134,12 @@ def plot_residual(model,
         save_gp_filename = None
 
     if model.condition:
+        input_data = [x, x_cond]
         # input_data = [x_miss, x_cond]
-        input_data = [x_miss, torch.cat((x_cond, x), dim=1)]
     else:
         input_data = [x_miss]
 
-    fig_res_vi = plot_residual_vi(model._VI, input_data, save_path=save_vi_filename)
+    fig_res_vi = plot_residual_vi(model._VI, input_data, save_path=save_vi_filename, x_rec=x_miss)
 
     # GP
     if input_features_names is None:
@@ -161,12 +155,8 @@ def plot_residual(model,
         mu, logvar, x_hat_mu, x_hat_logvar = model._VI(*input_data)
         x_train = torch.cat((x, x_hat_mu), dim=1)
 
-    if y.shape[1] > 1:
-        fig_res_gp, _ = plot_multiple_residual_gp(model._GP, x_train, y,
-                                                  x_names=x_names, save_filename=save_gp_filename)
-    else:
-        fig_res_gp, _ = plot_residual_gp(model._GP, x_train, y, save_filename=save_gp_filename,
-                                         x_names=x_names)
+    fig_res_gp, _ = plot_multiple_residual_gp(model._GP, x_train, y,
+                                              x_names=x_names, save_filename=save_gp_filename)
 
     return fig_res_vi, fig_res_gp
 
@@ -188,15 +178,16 @@ def plot_correlations(model,
         save_gp_filename = None
 
     if model.condition:
+        input_data = [x, x_cond]
         # input_data = [x_miss, x_cond]
-        input_data = [x_miss, torch.cat((x_cond, x), dim=1)]
     else:
         input_data = [x_miss]
 
     # VI
     fig_corr_vi = plot_correlations_vi(model._VI, input_data,
                                        save_path=save_vi_filename,
-                                       features_names=miss_features_names)
+                                       features_names=miss_features_names,
+                                       x_rec=x_miss)
 
     # GP
     if target_features_names is None:

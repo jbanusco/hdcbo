@@ -266,8 +266,8 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
 
                 if model.condition:
                     fig_lat = plot_latent(model._VI,
-                                          [missing_data, torch.cat((conditional_data, input_data), dim=1)],
                                           # [missing_data, conditional_data],
+                                          [input_data, conditional_data],
                                           save_path=None)
                 else:
                     fig_lat = plot_latent(model._VI, [missing_data], save_path=None)
@@ -349,8 +349,8 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
 
     if model.condition:
         fig_lat = plot_latent(model._VI,
-                              [missing_data, torch.cat((conditional_data, input_data), dim=1)],
                               # [missing_data, conditional_data],
+                              [input_data, conditional_data],
                               save_path=os.path.join(save_path, "latent.png"))
     else:
         fig_lat = plot_latent(model._VI, [missing_data], save_path=os.path.join(save_path, "latent.png"))

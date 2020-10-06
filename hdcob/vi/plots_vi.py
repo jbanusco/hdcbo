@@ -7,13 +7,16 @@ import numpy as np
 import torch
 
 
-def plot_strip(model, input, feature_names=None, save_path=None):
+def plot_strip(model, input, feature_names=None, save_path=None,
+               x_or=None):
     model.eval()
     output = model.forward(*input)
     x_rec = output[2]
 
     num_rec = x_rec.shape[1]
-    x_original = pd.DataFrame(input[0].cpu().data.numpy())
+    if x_or is None:
+        x_or = input[0]
+    x_original = pd.DataFrame(x_or.cpu().data.numpy())
     x_rec = pd.DataFrame(x_rec.cpu().data.numpy())
 
     x_original["set"] = "Original"
@@ -64,9 +67,13 @@ def plot_latent(model, input,  save_path=None):
 def plot_predictions(model,
                      input,
                      features_names: List = None,
-                     save_path=None):
+                     save_path=None,
+                     x_rec=None):
 
-    data_x = input[0]
+    if x_rec is None:
+        data_x = input[0]
+    else:
+        data_x = x_rec
     num_samples = data_x.shape[0]
 
     output = model.forward(*input)
@@ -113,13 +120,17 @@ def plot_predictions(model,
 def plot_residual(model,
                   input,
                   features_names: List = None,
-                  save_path=None):
+                  save_path=None,
+                  x_rec=None):
 
     output = model.forward(*input)
     pred = output[2]
     num_dim = pred.shape[1]
 
-    data_x = input[0]
+    if x_rec is None:
+        data_x = input[0]
+    else:
+        data_x = x_rec
     residual = pred - data_x
 
     fig, axes = plt.subplots(num_dim, 1, figsize=(3*1, 3*num_dim), squeeze=False, sharex=False, sharey=False)
@@ -157,14 +168,18 @@ def plot_residual(model,
 def plot_correlations_vi(model,
                          input,
                          features_names: List = None,
-                         save_path=None):
+                         save_path=None,
+                         x_rec=None):
 
     """ Plot the correlations """
 
     output = model.forward(*input)
     pred = output[2]
     num_dim = pred.shape[1]
-    data_x = input[0]
+    if x_rec is None:
+        data_x = input[0]
+    else:
+        data_x = x_rec
 
     fig, axes = plt.subplots(num_dim, 1, figsize=(3*1, 3*num_dim), squeeze=False, sharex=False, sharey=False)
     for ix in range(num_dim):
