@@ -106,8 +106,8 @@ def plot_predictions(model: torch.nn.Module,
     # if num_features > 1:
     #     shade = False
 
-    mean_add_std = mean_cond + cov_cond.squeeze().mm(torch.ones((mean_cond.shape[0], 1)).to(DEVICE))
-    mean_sub_std = mean_cond - cov_cond.squeeze().mm(torch.ones((mean_cond.shape[0], 1)).to(DEVICE))
+    mean_add_std = mean_cond + cov_cond.mm(torch.ones((mean_cond.shape[0], 1)).to(DEVICE))
+    mean_sub_std = mean_cond - cov_cond.mm(torch.ones((mean_cond.shape[0], 1)).to(DEVICE))
 
     x_train = model.x_train
     y_train = model.y_train
@@ -236,7 +236,7 @@ def plot_correlations_gp(model: torch.nn.Module,
         if len(axes.shape) == 1: axes = np.expand_dims(axes, 1)
 
     if num_features == 1:
-        axes = np.asarray(axes)
+        axes = [axes]
 
     if y_names is None:
         y_names = [f"target_{ix}" for ix in range(model._output_dim)]

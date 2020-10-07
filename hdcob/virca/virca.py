@@ -1,7 +1,7 @@
 from torch import nn
 from hdcob.config import *
 from hdcob.gp.gaussian_process import RegressionGP
-from hdcob.vi.vi_models import CVAE, VAE, CVI
+from hdcob.vi.vi_models import CVAE, VAE
 
 
 class VIRCA(nn.Module):
@@ -61,12 +61,12 @@ class VIRCA(nn.Module):
 
         # Initialize VAE
         if self.condition:
-            # self._VI = CVAE(self._input_dim, self._cond_dim,
-            #                 hidden_dim=hidden_dim, latent_dim=self._latent_dim, bias=bias,
+            # self._VI = CVAE(self._miss_dim, self._cond_dim, hidden_dim=hidden_dim,
+            #                 latent_dim=self._latent_dim, bias=bias,
             #                 init_noise=init_noise_vi, prior_noise=prior_noise, param=use_param)
-            self._VI = CVI(self._input_dim, self._cond_dim, self._miss_dim,
-                           hidden_dim=hidden_dim, latent_dim=self._latent_dim, bias=bias,
-                           init_noise=init_noise_vi, prior_noise=prior_noise, param=use_param)
+            self._VI = CVAE(self._miss_dim, self._cond_dim+self._input_dim, hidden_dim=hidden_dim,
+                            latent_dim=self._latent_dim, bias=bias,
+                            init_noise=init_noise_vi, prior_noise=prior_noise, param=use_param)
         else:
             self._VI = VAE(self._miss_dim, hidden_dim=hidden_dim, latent_dim=self._latent_dim,
                            bias=bias, init_noise=init_noise_vi, prior_noise=prior_noise,
@@ -103,13 +103,15 @@ class VIRCA(nn.Module):
         num_samples = pred_target.shape[0]
 
         loss_vi = self._VI.loss(outputs[:4], rec_target)
-        losses_gp = self._GP.loss((outputs[4].squeeze(), outputs[5]), pred_target)
+        losses_gp = self._GP.loss((outputs[4], outputs[5]), pred_target)
 
         # We need to weight the number of features predicted and imputed, in order that the optimization is stable
         num_pred = pred_target.shape[1]
         num_miss = rec_target.shape[1]
         factor_gp = 1 / (num_samples * num_pred)
         factor_vi = 1 / num_miss
+        # factor_gp = 1
+        # factor_vi = 1
 
         total = loss_vi['total'] * factor_vi + losses_gp['total'] * factor_gp
         gp_ll = losses_gp['ll_gp']
@@ -144,19 +146,17 @@ class VIRCA(nn.Module):
         :param y: [Ns, out_dim] - Target data to predict in the GP regression
         :param x_imp: [Ns, miss_dim] - Ground truth missing data [used in the autoencoder] - Imputed
         :param x_cond: [Ns, cond_dim] - Data to condition the autoencoder
-        # NOTE: If you want to use the autoencoder version without changing anything from the code
-        just set as x the x_imp
         """
         # Input for the autoencoder
         if self.condition:
-            inputs = [x, x_cond]
+            # inputs = [x_imp, x_cond]
+            inputs = [x_imp, torch.cat((x_cond, x), dim=1)]
         else:
-            inputs = [x]
+            inputs = [x_imp]
         mu, logvar, x_hat_mu, x_hat_logvar = self._VI(*inputs)
 
         # Input data for the GP (Observed data + imputed missing data)
         X = torch.cat((x, x_hat_mu), dim=1)
-
         if torch.any(torch.isnan(x_hat_mu)):
             error_msg = "NaN detected in the mean of the imputed features"
             log.debug(f"{error_msg}")
@@ -179,16 +179,14 @@ class VIRCA(nn.Module):
         mu_pred = mean_test + cov_test_train * cov_train^-1 * (y_train - mean_train)
         mu_pred = cov_test_train * cov_train^-1 * y_train [When means assumed to be 0]
         :param x: [Ns_test, in_dim]
-        :param x_cond: [Ns_test, cond_dim] Conditional data for the VI
+        :return: x_cond: [Ns, cond_dim] - Conditional data for the VI
         """
 
         with torch.no_grad():
             # self._VI.training = False
-            # x_dummy = tensor(torch.zeros(x.shape[0], self._miss_dim))
-            # In the VI model we will get the mean latent space (if not in training)
-            x_dummy = x
+            x_dummy = tensor(torch.zeros(x.shape[0], self._miss_dim))  # In the VI model we will get the mean latent space (if not in training)
             if self.condition:
-                # x_cond = torch.cat((x_cond, x), dim=1)
+                x_cond = torch.cat((x_cond, x), dim=1)
                 mu, logvar, x_hat_mu, x_hat_logvar = self._VI(x_dummy, x_cond)
             else:
                 mu, logvar, x_hat_mu, x_hat_logvar = self._VI(x_dummy)
