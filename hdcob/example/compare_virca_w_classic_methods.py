@@ -9,7 +9,7 @@ from torch import optim
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.sampler import SubsetRandomSampler
 from hdcob.virca.virca import VIRCA
-from hdcob.vi.vi_models import CVAE, CVI
+from hdcob.vi.vi_models import CVAE
 from hdcob.vi.test_autoencoders import train_vi
 from hdcob.gp.gaussian_process import RegressionGP
 from hdcob.gp.test_gp_single_input_output import train_gp
@@ -45,21 +45,19 @@ class DummyDataset_GP(Dataset):
         return sample
 
 
-class DummyDataset_CVI(Dataset):
+class DummyDataset_CVAE(Dataset):
     """
     Dataset containing DummyData to test the VAE classes
     """
 
-    def __init__(self, x, conditional=None, target=None):
+    def __init__(self, x, conditional=None):
         """
         x: Input data. In normal autoencoder it's all we need
         target: If instead of an autoencoder we want to use x to infer the target data
         conditional: If we want to condition the inference on some data
-        target: If target and input are different
         """
         self.data = x
         self.conditional = conditional
-        self.target = target
 
     def __len__(self):
         return len(self.x)
@@ -74,14 +72,8 @@ class DummyDataset_CVI(Dataset):
         else:
             data_conditional = tensor([0])  # Don't allow None
 
-        if self.target is not None:
-            data_target = self.target[idx]
-        else:
-            data_target = tensor([0])
-
         sample = {'input': data_input,
-                  'conditional': data_conditional,
-                  'target': data_target,
+                  'conditional': data_conditional
                   }
         return sample
 
@@ -89,39 +81,29 @@ class DummyDataset_CVI(Dataset):
 if __name__ == '__main__':
     # ==================================================================================================================
     # ======================================= Prepare the data =========================================================
-    LATENT_DIM = 1  # Latent dimension of the variational inference
+    LATENT_DIM = 1  # Latent dimension of the autoencoder
     G_LATENT_DIM = 1  # True latent dimensions
-    NOISE_LVL = 0.1  # Noise lvl in the generated data
-    BATCH_SIZE = 30  # 0 loads the entire batch
-    SEED = 5  # For reproducibility
-    EPOCHS = 200
+    NOISE_LVL = 0.05  # Noise lvl in the generated data
+    BATCH_SIZE = 100
+    SEED = 327  # For reproducibility
+    EPOCHS = 500
     LOAD_PREVIOUS = True
     PRINT_EPOCHS = EPOCHS + 100
     WARM_UP_KL = 10
-    GRADIENT_DECAY = EPOCHS / 3
+    GRADIENT_DECAY = 100
     PARAM = True
     LR = 5e-2
-
-    # Initial conditions
-    SIGMA_GP = 0
-    LAMDA_GP = 0
-    MEAN_GP = 0
-    NOISE_GP = 1
-    NOISE_VI = 1
-    BIAS = False
-    HIDDEN_DIM = 0
-    KERNEL = "RBF_ML"
 
     # Save folder
     results_folder = os.path.join(os.getcwd(), "results")
     os.makedirs(results_folder, exist_ok=True)
 
     # Multiple input features to predict one output
-    NUM_SAMPLES = 500
+    NUM_SAMPLES = 600
     MISSING_DIM = 3
     COND_DIM = 5
-    INPUT_DIM = 1
-    OUTPUT_DIM = 3
+    INPUT_DIM = 2
+    OUTPUT_DIM = 5
 
     np.random.seed(SEED)  # Just in case we use shuffle option - reproducibility
     if SEED is not None: torch.manual_seed(SEED)
@@ -131,8 +113,7 @@ if __name__ == '__main__':
                                miss_dim=MISSING_DIM,
                                target_dim=OUTPUT_DIM,
                                seed=SEED,
-                               noise_lvl=NOISE_LVL,
-                               vae=False)
+                               noise_lvl=NOISE_LVL)
 
     # Define the samplers
     indices = list(range(0, NUM_SAMPLES))
@@ -169,7 +150,17 @@ if __name__ == '__main__':
     # ==================================================================================================================
     # =========================================== Run VIRCA ============================================================
 
-    path_test = os.path.join(results_folder, f"VIRCA_L{LATENT_DIM}_H{HIDDEN_DIM}_K{KERNEL}_{LR}_P{PARAM}")
+    # Initial conditions
+    SIGMA_GP = 1
+    LAMDA_GP = -1
+    MEAN_GP = 0
+    NOISE_GP = 2
+    NOISE_VI = 2
+    BIAS = False
+    HIDDEN_DIM = 0
+    KERNEL = "RBF_ML"
+
+    path_test = os.path.join(results_folder, f"VIRCA_L{LATENT_DIM}_H{HIDDEN_DIM}_K{KERNEL}_{LR}")
     virca_model = VIRCA(input_dim=INPUT_DIM,
                         miss_dim=MISSING_DIM,
                         cond_dim=COND_DIM,
@@ -235,53 +226,6 @@ if __name__ == '__main__':
     knn_neigh = KNeighborsRegressor(n_neighbors=best_k)
     knn_neigh.fit(x_input_knn, y_knn)
 
-    # ========================> Imputation (CVI)
-    path_test = os.path.join(results_folder, f"CVI_{LR}_L{LATENT_DIM}_P{PARAM}")
-
-    DataSet_CVI = DummyDataset_CVI(
-        DataSet.input_data,
-        target=DataSet.missing_data,
-        conditional=DataSet.cond_data,
-        # conditional=torch.cat((DataSet.cond_data, DataSet.input_data), dim=1),
-    )
-
-    if BATCH_SIZE == 0:
-        train_loader_cvi = DataLoader(DataSet_CVI, batch_size=len(train_idx), sampler=train_sampler)
-        test_loader_cvi = DataLoader(DataSet_CVI, batch_size=len(test_idx), sampler=test_sampler)
-    else:
-        train_loader_cvi = DataLoader(DataSet_CVI, batch_size=BATCH_SIZE, sampler=train_sampler)
-        test_loader_cvi = DataLoader(DataSet_CVI, batch_size=len(test_idx), sampler=test_sampler)
-
-    # Train the model
-    model_cvi = CVI(
-        input_dim=INPUT_DIM,
-        cond_dim=COND_DIM,
-        out_dim=MISSING_DIM,
-        hidden_dim=HIDDEN_DIM,
-        latent_dim=LATENT_DIM,
-        param=PARAM,
-        init_noise=NOISE_VI
-    )
-
-    optim_options = {'epochs': EPOCHS,
-                     'load_previous': LOAD_PREVIOUS,
-                     'print_epochs': PRINT_EPOCHS,
-                     'lr': LR,
-                     'seed': SEED,
-                     'latent_dim': LATENT_DIM,
-                     'hidden_dim': HIDDEN_DIM,
-                     'var_param': PARAM,
-                     'batch_size': BATCH_SIZE,
-                     'warm_up_kl': WARM_UP_KL,
-                     'hp_params': {'lr': LR, 'latent': LATENT_DIM, 'hidden': HIDDEN_DIM}}
-
-    optimizer = optim.Adam(model_cvi.parameters(), lr=LR)
-    # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[WARM_UP_KL], gamma=0.1)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=GRADIENT_DECAY, gamma=0.1)
-    train_vi(model_cvi, optimizer, path_test, train_loader_cvi, test_loader_cvi, optim_options, scheduler,
-             input_output=True)
-    model_cvi.eval()
-
     # ========================> Regression (GP)
     path_test = os.path.join(results_folder, f"GP_Reg_{KERNEL}_{LR}")
 
@@ -317,7 +261,6 @@ if __name__ == '__main__':
     optimizer = optim.Adam(gp_model.parameters(), lr=LR)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=GRADIENT_DECAY, gamma=0.1)
     train_gp(gp_model, optimizer, path_test, train_loader_reg, test_loader_reg, optim_options)
-    gp_model.eval()
 
     # ========================> Median
     median_value = DataSet.missing_data[train_idx].median(dim=0)[0]
@@ -325,14 +268,8 @@ if __name__ == '__main__':
     # ========================> Mean
     mean_value = DataSet.missing_data[train_idx].mean(dim=0)
 
-    # ========================> CVI + GP
-    cvi_pred = model_cvi.forward(DataSet.input_data[test_idx], DataSet.cond_data[test_idx])
-    cvi_pred = cvi_pred[2]
-
-    X_test = torch.cat((DataSet.input_data[test_idx], tensor(cvi_pred)), dim=1)
-    cvi_gp_pred, _ = gp_model.predict(X_test)
-
     # ========================> KNN + GP
+    gp_model.eval()
     y_pred_knn = knn_neigh.predict(x_input_knn_test)
     X_test = torch.cat((DataSet.input_data[test_idx], tensor(y_pred_knn)), dim=1)
     knn_gp_pred, _ = gp_model.predict(X_test)
@@ -341,35 +278,31 @@ if __name__ == '__main__':
     # ========================================= Compute errors =========================================================
 
     # ========================> Imputation
-    methods_list = ["Mean", "Median", "KNN", "CVI", "Ours"]
+    methods_list = ["Mean", "Median", "KNN", "Ours"]
     mean_imp_errors = pd.DataFrame([], columns=methods_list, index=["MSE"])
 
     # Squared error
     mean_se = ((DataSet.missing_data[test_idx] - mean_value) ** 2)
     median_se = ((DataSet.missing_data[test_idx] - median_value) ** 2)
     knn_se = ((DataSet.missing_data[test_idx] - y_pred_knn) ** 2)
-    cvi_se = ((DataSet.missing_data[test_idx] - cvi_pred) ** 2)
     ours_se = ((DataSet.missing_data[test_idx] - ours_miss) ** 2)
 
     imp_errors = pd.DataFrame(data=np.concatenate((mean_se.sum(dim=1).unsqueeze(1).cpu().data.numpy(),
                                                    median_se.sum(dim=1).unsqueeze(1).cpu().data.numpy(),
                                                    knn_se.sum(dim=1).unsqueeze(1).cpu().data.numpy(),
-                                                   cvi_se.sum(dim=1).unsqueeze(1).cpu().data.numpy(),
                                                    ours_se.sum(dim=1).unsqueeze(1).cpu().data.numpy()), axis=1),
                               columns=methods_list)
     mean_imp_errors.loc["MSE"] = imp_errors.mean()
 
     # ========================> Emulation
-    methods_list = ["KNN+GP", "CVI+GP", "Ours"]
+    methods_list = ["KNN+GP", "Ours"]
     mean_emulation_errors = pd.DataFrame([], columns=methods_list, index=["MSE"])
 
     # Squared error
     knn_gp_se = ((DataSet.target_data[test_idx] - knn_gp_pred) ** 2)
-    cvi_gp_se = ((DataSet.target_data[test_idx] - cvi_gp_pred) ** 2)
     ours_em_se = ((DataSet.target_data[test_idx] - ours_target) ** 2)
 
     emulation_errors = pd.DataFrame(data=np.concatenate((knn_gp_se.sum(dim=1).unsqueeze(1).cpu().data.numpy(),
-                                                         cvi_gp_se.sum(dim=1).unsqueeze(1).cpu().data.numpy(),
                                                          ours_em_se.sum(dim=1).unsqueeze(1).cpu().data.numpy()), axis=1),
                                     columns=methods_list)
     mean_emulation_errors.loc["MSE"] = emulation_errors.mean()
@@ -382,31 +315,19 @@ if __name__ == '__main__':
     # Errors by variable / dimension
     err_mean_dim = pd.DataFrame(mean_se.cpu().data.numpy(), columns=list_missing_features)
     err_mean_dim["Index"] = "Mean"
-
     err_median_dim = pd.DataFrame(median_se.cpu().data.numpy(), columns=list_missing_features)
     err_median_dim["Index"] = "Median"
-
     err_knn_dim = pd.DataFrame(knn_se.cpu().data.numpy(), columns=list_missing_features)
     err_knn_dim["Index"] = "KNN"
-
-    err_cvi_dim = pd.DataFrame(cvi_se.cpu().data.numpy(), columns=list_missing_features)
-    err_cvi_dim["Index"] = "CVI"
-
     err_ours_dim = pd.DataFrame(ours_se.cpu().data.numpy(), columns=list_missing_features)
     err_ours_dim["Index"] = "Ours"
-
-    imp_errors_dim = pd.concat([err_mean_dim, err_median_dim, err_knn_dim, err_cvi_dim, err_ours_dim], axis=0)
+    imp_errors_dim = pd.concat([err_mean_dim, err_median_dim, err_knn_dim, err_ours_dim], axis=0)
 
     err_knn_gp_dim = pd.DataFrame(knn_gp_se.cpu().data.numpy(), columns=list_target_features)
-    err_knn_gp_dim["Index"] = "KNN+GP"
-
-    err_cvi_gp_dim = pd.DataFrame(cvi_gp_se.cpu().data.numpy(), columns=list_target_features)
-    err_cvi_gp_dim["Index"] = "CVI+GP"
-
+    err_knn_gp_dim["Index"] = "KNN"
     err_ours_em_dim = pd.DataFrame(ours_em_se.cpu().data.numpy(), columns=list_target_features)
     err_ours_em_dim["Index"] = "Ours"
-
-    em_errors_dim = pd.concat([err_knn_gp_dim, err_cvi_gp_dim, err_ours_em_dim], axis=0)
+    em_errors_dim = pd.concat([err_knn_gp_dim, err_ours_em_dim], axis=0)
 
     # Actual plotting
     imputations = pd.melt(imp_errors_dim, id_vars="Index")
@@ -445,20 +366,18 @@ if __name__ == '__main__':
 
     # Imputation
     p_thres = p_thres / MISSING_DIM
-    df_pvalues = pd.DataFrame(data=None, columns=["KNN", "CVI"], index=list_missing_features)
+    df_pvalues = pd.DataFrame(data=None, columns=["KNN"], index=list_missing_features)
     for var in list_missing_features:
         df_pvalues["KNN"].loc[f"{var}"] = scipy.stats.ranksums(err_knn_dim[f"{var}"], err_ours_dim[f"{var}"])[-1]
-        df_pvalues["CVI"].loc[f"{var}"] = scipy.stats.ranksums(err_cvi_dim[f"{var}"], err_ours_dim[f"{var}"])[-1]
     mask_sig = df_pvalues < p_thres
     mask_sig.to_csv(os.path.join(results_folder, "imputation_sig.csv"))
     print(mask_sig)
 
     # Emulation
     p_thres = p_thres / OUTPUT_DIM
-    df_pvalues = pd.DataFrame(data=None, columns=["KNN+GP", "CVI+GP"], index=list_target_features)
+    df_pvalues = pd.DataFrame(data=None, columns=["KNN+GP"], index=list_target_features)
     for var in list_target_features:
         df_pvalues["KNN+GP"].loc[f"{var}"] = scipy.stats.ranksums(err_knn_gp_dim[f"{var}"], err_ours_em_dim[f"{var}"])[-1]
-        df_pvalues["CVI+GP"].loc[f"{var}"] = scipy.stats.ranksums(err_cvi_gp_dim[f"{var}"], err_ours_em_dim[f"{var}"])[-1]
     mask_sig = df_pvalues < p_thres
     mask_sig.to_csv(os.path.join(results_folder, "emulation_sig.csv"))
     print(mask_sig)

@@ -170,7 +170,7 @@ class VAE(nn.Module):
 
 
 class CVAE(VAE):
-    """ Conditional Variational Autoencoder """
+    """ Variational Autoencoder """
 
     def __init__(self,
                  input_dim: int,
@@ -249,83 +249,4 @@ class CVAE(VAE):
         if self.training:
             self._x_mu = x_mu.detach()
             self._x_logvar = x_logvar.detach()
-        return mu, logvar, x_mu, x_logvar
-
-
-class CVI(VAE):
-    """ Conditional Variational Inference """
-
-    def __init__(self,
-                 input_dim: int,
-                 cond_dim: int,
-                 out_dim: int,
-                 latent_dim: int = 1,
-                 hidden_dim: int = 0,
-                 bias: bool = False,
-                 init_noise: float = -5,
-                 prior_noise: dict = None,
-                 param: bool = True):
-        """
-        We expect data standardized [0 mean, unit variance]
-        :param input_dim: Input dimensions
-        :param latent_dim: Latent dimensions
-        """
-        super(CVI, self).__init__(input_dim=input_dim+cond_dim,
-                                  latent_dim=latent_dim,
-                                  hidden_dim=hidden_dim,
-                                  bias=bias,
-                                  param=param)
-
-        self._input_dim = input_dim
-        self._cond_dim = cond_dim
-        self._out_dim = out_dim
-
-        if self._hidden_dim == 0:
-            if param:
-                if prior_noise is None:
-                    self._decoder = DecoderGaussian_ParamV(self._latent_dim+self._cond_dim,
-                                                           self._out_dim, bias=bias,
-                                                           init_value=init_noise)
-                else:
-                    self._decoder = DecoderGaussian_ParamV_Prior(self._latent_dim+self._cond_dim,
-                                                                 self._out_dim, bias=bias,
-                                                                 init_value=init_noise,
-                                                                 prior_noise=prior_noise)
-            else:
-                self._decoder = DecoderGaussian(self._latent_dim+self._cond_dim, self._out_dim, bias=bias)
-        else:
-            if param:
-                self._decoder = DecoderGaussian_HiddenParamVar(self._latent_dim+self._cond_dim, self._hidden_dim,
-                                                               self._out_dim, init_value=init_noise, bias=bias)
-            else:
-                self._decoder = DecoderGaussianHidden(self._latent_dim+self._cond_dim, self._hidden_dim,
-                                                      self._out_dim, bias=bias)
-
-    def forward(self,
-                x: tensor,
-                cond: tensor):
-        """
-        Forward pass of the model. Encodes information present in X into the latent space Z. Imputes data from it,
-        and predicts Y using both
-        :param x: [Ns, in_dim]
-        """
-
-        input_data = torch.cat((x, cond), dim=1)
-        mu, logvar = self._encoder(input_data)
-
-        if self.training:
-            z = self.reparameterize(mu, logvar)
-            self._lat_mu = mu.detach()
-            self._lat_logvar = logvar.detach()
-        else:
-            z = mu
-
-        # Condition the latent space
-        z = torch.cat((z, cond), dim=1)
-
-        x_mu, x_logvar = self._decoder(z)
-        if self.training:
-            self._x_mu = x_mu.detach()
-            self._x_logvar = x_logvar.detach()
-
         return mu, logvar, x_mu, x_logvar

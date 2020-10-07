@@ -546,6 +546,9 @@ class RegressionGP(GeneralGP):
 
         def_value = tensor([0])
 
+        # loss = tensor([0])
+        # ll = tensor([0])
+        # kl = tensor([0])
         loss = tensor(torch.zeros(1, self._output_dim))
         ll = tensor(torch.zeros(1, self._output_dim))
         kl = tensor(torch.zeros(1, self._output_dim))
@@ -553,7 +556,7 @@ class RegressionGP(GeneralGP):
         num_samples = target.shape[0]
         for ix in range(self._output_dim):
             # out_gp = (predicted[0][ix], predicted[1][ix])
-            out_gp = (predicted[0].squeeze()[ix], predicted[1][:, :, ix])
+            out_gp = (predicted[0][ix], predicted[1][:, :, ix])
             losses_gp = self._GP[ix].loss(out_gp, target[:, ix])
             # loss += losses_gp['total']
             # ll += losses_gp.get('ll', def_value)
@@ -590,7 +593,7 @@ class RegressionGP(GeneralGP):
             # y_mu.append(y_ix)
             # y_cov_matrix.append(cov_matrix_ix)
 
-        return y_mu, y_cov_matrix
+        return y_mu.squeeze(), y_cov_matrix
 
     def predict(self,
                 x: tensor):

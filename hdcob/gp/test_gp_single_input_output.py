@@ -234,13 +234,16 @@ def train_gp(model, optimizer, save_path, train_loader, test_loader, options,
     # Add to the tensorboard and save it
     if len(y_data.shape) == 1: y_data = y_data.unsqueeze(1)
 
-    fig_pred, ax_pred = plot_multiple_predictions(model, x_data, y_data, num_samples=0, shade=True)
+    if y_data.shape[1] > 1:
+        fig_pred, ax_pred = plot_multiple_predictions(model, x_data, y_data, num_samples=0, shade=True)
+    else:
+        fig_pred, ax_pred = plot_predictions(model, x_data, y_data, num_samples=0, shade=True)
     writer.add_figure('predictions', fig_pred, global_step=options['epochs'])
 
-    # if y_data.shape[1] > 1:
-    fig_res, ax_res = plot_multiple_residual(model, x_data, y_data)
-    # else:
-    #     fig_res, ax_res = plot_residual(model, x_data, y_data)
+    if y_data.shape[1] > 1:
+        fig_res, ax_res = plot_multiple_residual(model, x_data, y_data)
+    else:
+        fig_res, ax_res = plot_residual(model, x_data, y_data)
     writer.add_figure('residuals', fig_res, global_step=options['epochs'])
 
     # Strip plot

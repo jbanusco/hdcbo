@@ -6,7 +6,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 from hdcob.utilities.metrics import mae, mse
 from hdcob.vi.plots_vi import plot_residual, plot_latent, plot_predictions, plot_strip
-from hdcob.vi.vi_models import VAE, CVAE, CVI
+from hdcob.vi.vi_models import VAE, CVAE
 from hdcob.vi.generator_synthetic import SyntheticDataset
 from hdcob.config import *
 
@@ -69,7 +69,7 @@ def load_data(model, optimizer, filename, scheduler = None):
 
 
 def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
-             scheduler=None, input_output=False):
+             scheduler=None):
     """ Train variational inference model """
     log = logging.getLogger(LOGGER_NAME)
     log.info("Training VI")
@@ -79,17 +79,16 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
     torch.save(options, os.path.join(save_path, f"optim_options.pth"))
     writer = SummaryWriter(save_path)
 
-    if type(model) == CVAE or type(model) == CVI:
-        conditional = True
-    else:
-        conditional = False
-
     # Don't use prob. functions to be able to trace back
     data = iter(train_loader).next()
-    if conditional:
-        writer.add_graph(model, [data['input'].to(DEVICE), data['conditional'].to(DEVICE)])
+    input_data = data['input'].to(DEVICE)
+    if type(model) == VAE:
+        writer.add_graph(model, [input_data])
+    elif type(model) == CVAE:
+        cond_data = data['conditional'].to(DEVICE)
+        writer.add_graph(model, [input_data, cond_data])
     else:
-        writer.add_graph(model, [data['input'].to(DEVICE)])
+        raise RuntimeError("Unexpected type of model")
     writer.close()
 
     losses = list()
@@ -117,15 +116,14 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
             running_mae = 0
             num_batches = len(train_loader)
             for batch_idx, data in enumerate(train_loader):
-                if input_output:
-                    recon_data = data['target'].to(DEVICE)
+                recon_data = data['input'].to(DEVICE)
+                if type(model) == VAE:
+                    input_data = [recon_data]
+                elif type(model) == CVAE:
+                    cond_data = data['conditional'].to(DEVICE)
+                    input_data = [recon_data, cond_data]
                 else:
-                    recon_data = data['input'].to(DEVICE)
-
-                if conditional:
-                    input_data = [data['input'].to(DEVICE), data['conditional'].to(DEVICE)]
-                else:
-                    input_data = [data['input'].to(DEVICE)]
+                    raise RuntimeError(f"Unexpected model type: {type(model)}")
 
                 rec_data = model.forward(*input_data)
                 # with torch.autograd.detect_anomaly():
@@ -183,20 +181,17 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
                     model.eval()
 
                     data = iter(test_loader).next()
-                    if conditional:
+                    if type(model) == VAE:
+                        input_data = [data['input'].to(DEVICE)]
+                    elif type(model) == CVAE:
                         input_data = [data['input'].to(DEVICE), data['conditional'].to(DEVICE)]
                     else:
-                        input_data = [data['input'].to(DEVICE)]
+                        raise RuntimeError(f"Unexpected model type: {type(model)}")
 
                     fig_lat = plot_latent(model, input_data, save_path=None)
-                    if input_output:
-                        fig_res = plot_residual(model, input_data, save_path=None, x_rec=data['target'].to(DEVICE))
-                        fig_pred = plot_predictions(model, input_data, save_path=None, x_rec=data['target'].to(DEVICE))
-                        fig_strip = plot_strip(model, input_data, x_or=data['target'].to(DEVICE))
-                    else:
-                        fig_res = plot_residual(model, input_data, save_path=None)
-                        fig_pred = plot_predictions(model, input_data, save_path=None)
-                        fig_strip = plot_strip(model, input_data, save_path=None)
+                    fig_res = plot_residual(model, input_data, save_path=None)
+                    fig_pred = plot_predictions(model, input_data, save_path=None)
+                    fig_strip = plot_strip(model, input_data, save_path=None)
 
                     writer.add_figure('strip', fig_strip, global_step=epoch + 1)
                     writer.add_figure('latent', fig_lat, global_step=epoch + 1)
@@ -224,15 +219,13 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
     # Save the final results in the test model
     model.eval()
     data = iter(test_loader).next()
-    if input_output:
-        recon_data_test = data['target'].to(DEVICE)
-    else:
-        recon_data_test = data['input'].to(DEVICE)
-
-    if conditional:
+    recon_data_test = data['input'].to(DEVICE)
+    if type(model) == VAE:
+        input_data = [data['input'].to(DEVICE)]
+    elif type(model) == CVAE:
         input_data = [data['input'].to(DEVICE), data['conditional'].to(DEVICE)]
     else:
-        input_data = [data['input'].to(DEVICE)]
+        raise RuntimeError(f"Unexpected model type: {type(model)}")
 
     rec_data = model.forward(*input_data)
     test_mae = mae(rec_data[2], recon_data_test)
@@ -248,17 +241,9 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
 
     # Residual's boxplot
     fig_lat = plot_latent(model, input_data, save_path=os.path.join(save_path, "latent.png"))
-    if input_output:
-        fig_res = plot_residual(model, input_data, x_rec=data['target'].to(DEVICE),
-                                save_path=os.path.join(save_path, "residuals.png"))
-        fig_pred = plot_predictions(model, input_data, x_rec=data['target'].to(DEVICE),
-                                    save_path=os.path.join(save_path, "prediction.png"))
-        fig_strip = plot_strip(model, input_data, x_or=data['target'].to(DEVICE),
-                               save_path=os.path.join(save_path, "strip_plot.png"))
-    else:
-        fig_strip = plot_strip(model, input_data, save_path=os.path.join(save_path, "strip_plot.png"))
-        fig_res = plot_residual(model, input_data, save_path=os.path.join(save_path, "residuals.png"))
-        fig_pred = plot_predictions(model, input_data, save_path=os.path.join(save_path, "prediction.png"))
+    fig_res = plot_residual(model, input_data, save_path=os.path.join(save_path, "residuals.png"))
+    fig_pred = plot_predictions(model, input_data, save_path=os.path.join(save_path, "prediction.png"))
+    fig_strip = plot_strip(model, input_data, save_path=os.path.join(save_path, "strip_plot.png"))
 
     writer.add_figure('strip', fig_strip, global_step=epoch + 1)
     writer.add_figure('latent', fig_lat, global_step=epoch + 1)
