@@ -40,7 +40,8 @@ class VAE(nn.Module):
                  bias: bool = False,
                  init_noise: float = -5,
                  prior_noise: dict = None,
-                 param: bool = True):
+                 param: bool = True,
+                 device: str = "cpu"):
         """
         We expect data standardized [0 mean, unit variance]
         :param input_dim: Input dimensions
@@ -54,7 +55,8 @@ class VAE(nn.Module):
         self._input_dim = input_dim
         self._latent_dim = latent_dim
         self._hidden_dim = hidden_dim
-
+        self.device = device
+        
         # Encoder [Two returns one for the mean and another for the variance, in log-space]
         if self._hidden_dim == 0:
             self._encoder = EncoderGaussian(self._input_dim, self._latent_dim, bias=bias)
@@ -190,7 +192,8 @@ class CVAE(VAE):
                  bias: bool = False,
                  init_noise: float = -5,
                  prior_noise: dict = None,
-                 param: bool = True):
+                 param: bool = True,
+                 device: str = "cpu"):
         """
         We expect data standardized [0 mean, unit variance]
         :param input_dim: Input dimensions
