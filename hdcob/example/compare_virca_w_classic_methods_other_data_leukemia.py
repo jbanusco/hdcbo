@@ -15,7 +15,6 @@ from hdcob.gp.gaussian_process import RegressionGP
 from hdcob.gp.test_gp_single_input_output import train_gp
 from hdcob.virca.test_model import train_virca
 from hdcob.virca.generator_synthetic import SyntheticDataset
-from hdcob.utilities.metrics import mahalanobis_distance
 from hdcob.config import tensor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.model_selection import cross_val_score
@@ -80,6 +79,40 @@ parser.add_argument("--use_param", type=strtobool, nargs='?', const=True, defaul
                     help="Use parameter for variance of the decoding distribution")
 
 
+class DummyDataset(Dataset):
+    """
+    Dataset containing DummyData to test the GP classes
+    """
+
+    def __init__(self, input_data, cond_data, missing_data, target_data):
+        """
+
+        """
+        self.input_data = input_data
+        self.cond_data = cond_data
+        self.missing_data = missing_data
+        self.target_data = target_data
+
+    def __len__(self):
+        return len(self.input_data)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        if len(self.cond_data) > 0:
+            cond_data = self.cond_data[idx]
+        else:
+            cond_data = tensor([0])
+
+        sample = {'input': self.input_data[idx],
+                  'conditional': cond_data,
+                  'missing': self.missing_data[idx],
+                  'target': self.target_data[idx],
+                  }
+        return sample
+
+
 class DummyDataset_GP(Dataset):
     """
     Dataset containing DummyData to test the GP classes
@@ -141,6 +174,37 @@ class DummyDataset_CVAE(Dataset):
 if __name__ == '__main__':
     # ==================================================================================================================
     # ======================================= Prepare the data =========================================================
+
+    x_data_test = pd.read_csv("ALL_AML_original_data/x_test.csv", header=None)
+    y_data_test = pd.read_csv("ALL_AML_original_data/y_test.csv", header=None)
+
+    x_data_train = pd.read_csv("ALL_AML_original_data/x_train.csv", header=None)
+    y_data_train = pd.read_csv("ALL_AML_original_data/y_train.csv", header=None)
+
+    header = list(data.columns)
+
+    observed = ['avg_temp', 'avg_humidity']
+    missing = ['avg_hg', 'avg_wind']
+    target = ['avg_dewpt', 'avg_vis']
+    condition = ["city", "month"]
+
+    x_obs = data[observed].copy()  # Observations [available components]
+    x_obs = tensor(x_obs.to_numpy())
+
+    x_miss = data[missing].copy()  # Missing observations and observed
+    x_miss = tensor(x_miss.to_numpy())
+
+    cond = pd.get_dummies(data[condition]).copy()
+    cond = tensor(cond.to_numpy())
+
+    target = data[target].copy()  # Predictor judge scores
+    target = tensor(target.to_numpy())
+
+    INPUT_DIM = x_obs.shape[1]
+    MISSING_DIM = x_miss.shape[1]
+    COND_DIM = cond.shape[1]
+    OUTPUT_DIM = target.shape[1]
+
     parsed_args = parser.parse_args()
 
     log = logging.getLogger(LOGGER_NAME)
@@ -158,66 +222,45 @@ if __name__ == '__main__':
     BATCH_SIZE = parsed_args.batch_size
 
     LATENT_DIM = parsed_args.latent
-    NOISE_LVL_MISS = parsed_args.snr_miss  # Noise lvl in the missing data (SNR)
-    NOISE_LVL_TARGET = parsed_args.snr_target  # Noise lvl in the target data (SNR
     HIDDEN_DIM = parsed_args.hidden
     PARAM = bool(parsed_args.use_param)
 
-    MISSING_DIM = parsed_args.missing
-    COND_DIM = parsed_args.conditional
-    INPUT_DIM = parsed_args.input
-    OUTPUT_DIM = parsed_args.target
-
     LATENT_DIM = 1  # Latent dimension of the autoencoder
-    HIDDEN_DIM = 0
-    # LATENT_DIM = 1  # Latent dimension of the autoencoder
-    # HIDDEN_DIM = 0
-    G_LATENT_DIM = 1  # True latent dimensions
-    NOISE_LVL_MISS = 4  # Noise lvl in the missing data (SNR)
-    NOISE_LVL_TARGET = 4  # Noise lvl in the target data (SNR)
-
-    BATCH_SIZE = 50
+    BATCH_SIZE = 100
     SEED = 327  # For reproducibility
-    EPOCHS = 200
+    EPOCHS = 500
     LOAD_PREVIOUS = False
     PRINT_EPOCHS = EPOCHS + 100
-    WARM_UP_KL = 20
-    # LR_DECAY = int(EPOCHS / 2)
-    LR_DECAY = EPOCHS + 200
+    WARM_UP_KL = 10
+    LR_DECAY = int(EPOCHS / 3)
+    # LR_DECAY = EPOCHS + 100
     PARAM = False
-    LR = 5e-2
+    LR = 5e-3
 
     # Initial conditions
     SIGMA_GP = 0
     LAMDA_GP = 0
     MEAN_GP = 0
-    NOISE_GP = 1
+    NOISE_GP = 0
     NOISE_VI = 1
     BIAS = False
+    HIDDEN_DIM = 0
     KERNEL = "RBF_ML"
+    # KERNEL = "Lin_MC"
+
+    # Reg = "Linear"  # or GP
+    Reg = "GP"
 
     # Save folder
-    results_folder = os.path.join(os.getcwd(), "results")
+    results_folder = os.path.join(os.getcwd(), "results_weather")
     os.makedirs(results_folder, exist_ok=True)
 
     # Multiple input features to predict one output
-    NUM_SAMPLES = 349
-    MISSING_DIM = 2
-    # COND_DIM = 2
-    # COND_DIM = 0
-    INPUT_DIM = 2
-    OUTPUT_DIM = 4
+    NUM_SAMPLES = data.shape[0]
 
     np.random.seed(SEED)  # Just in case we use shuffle option - reproducibility
     if SEED is not None: torch.manual_seed(SEED)
-    DataSet = SyntheticDataset(num_samples=NUM_SAMPLES, lat_dim=G_LATENT_DIM,
-                               input_dim=INPUT_DIM,
-                               cond_dim=COND_DIM,
-                               miss_dim=MISSING_DIM,
-                               target_dim=OUTPUT_DIM,
-                               seed=SEED,
-                               noise_lvl_miss=NOISE_LVL_MISS,
-                               noise_lvl_target=NOISE_LVL_TARGET)
+    DataSet = DummyDataset(x_obs, cond, x_miss, target)
 
     # Define the samplers
     indices = list(range(0, NUM_SAMPLES))
@@ -230,28 +273,18 @@ if __name__ == '__main__':
     mean_data_input_data = DataSet.input_data[train_idx].mean(dim=0)
     std_data_input_data = DataSet.input_data[train_idx].std(dim=0)
     DataSet.input_data = (DataSet.input_data - mean_data_input_data) / std_data_input_data
-    # try:
-    #     DataSet.input_data = (DataSet.input_data - DataSet.input_data[train_idx].min(dim=0)[0]) / (DataSet.input_data[train_idx].max(dim=0)[0] - DataSet.input_data[train_idx].min(dim=0)[0])
-    # except:
-    #     pass
 
-    mean_data_cond_data = DataSet.cond_data[train_idx].mean(dim=0)
-    std_data_cond_data = DataSet.cond_data[train_idx].std(dim=0)
-    DataSet.cond_data = (DataSet.cond_data - mean_data_cond_data) / std_data_cond_data
-    # DataSet.cond_data = (DataSet.cond_data - DataSet.cond_data[train_idx].min(dim=0)[0]) / (DataSet.cond_data[train_idx].max(dim=0)[0] - DataSet.cond_data[train_idx].min(dim=0)[0])
+    # mean_data_cond_data = DataSet.cond_data[train_idx].mean(dim=0)
+    # std_data_cond_data = DataSet.cond_data[train_idx].std(dim=0)
+    # DataSet.cond_data = (DataSet.cond_data - mean_data_cond_data) / std_data_cond_data
 
     mean_data_missing_data = DataSet.missing_data[train_idx].mean(dim=0)
     std_data_missing_data = DataSet.missing_data[train_idx].std(dim=0)
     DataSet.missing_data = (DataSet.missing_data - mean_data_missing_data) / std_data_missing_data
-    # DataSet.missing_data = (DataSet.missing_data - DataSet.missing_data[train_idx].min(dim=0)[0]) / (
-    #             DataSet.missing_data[train_idx].max(dim=0)[0] - DataSet.missing_data[train_idx].min(dim=0)[0])
 
     mean_data_target_data = DataSet.target_data[train_idx].mean(dim=0)
     std_data_target_data = DataSet.target_data[train_idx].std(dim=0)
     DataSet.target_data = (DataSet.target_data - mean_data_target_data) / std_data_target_data
-    # DataSet.target_data = (DataSet.target_data - mean_data_target_data)
-    # DataSet.target_data = (DataSet.target_data - DataSet.target_data[train_idx].min(dim=0)[0]) / (
-    #             DataSet.target_data[train_idx].max(dim=0)[0] - DataSet.target_data[train_idx].min(dim=0)[0])
 
     # Get the data loaders
     if BATCH_SIZE == 0:
@@ -304,26 +337,31 @@ if __name__ == '__main__':
     train_virca(virca_model, optimizer, path_test, train_loader, test_loader, optim_options, scheduler)
 
     virca_model.eval()
-    ours_target, _, ours_miss = virca_model.predict(DataSet.input_data[test_idx], DataSet.cond_data[test_idx])
+    if COND_DIM > 0:
+        ours_target, _, ours_miss = virca_model.predict(DataSet.input_data[test_idx], DataSet.cond_data[test_idx])
+    else:
+        ours_target, _, ours_miss = virca_model.predict(DataSet.input_data[test_idx])
 
     # ==================================================================================================================
     # ========================================= Classic methods ========================================================
 
     # ====================> KNN for imputation
     data_train = 0
-    x_input_knn = torch.cat((DataSet.cond_data[train_idx], DataSet.input_data[train_idx]), dim=1).cpu().data.numpy()
+    if COND_DIM > 0:
+        x_input_knn = torch.cat((DataSet.cond_data[train_idx], DataSet.input_data[train_idx]), dim=1).cpu().data.numpy()
+        x_input_knn_test = torch.cat((DataSet.cond_data[test_idx], DataSet.input_data[test_idx]), dim=1).cpu().data.numpy()
+    else:
+        x_input_knn = DataSet.input_data[train_idx].cpu().data.numpy()
+        x_input_knn_test = DataSet.input_data[test_idx].cpu().data.numpy()
     # x_input_knn = DataSet.cond_data[train_idx].cpu().data.numpy()
     y_knn = DataSet.missing_data[train_idx].cpu().data.numpy()
-    x_input_knn_test = torch.cat((DataSet.cond_data[test_idx], DataSet.input_data[test_idx]), dim=1).cpu().data.numpy()
+
     # x_input_knn_test = DataSet.cond_data[test_idx].cpu().data.numpy()
 
     list_scores = list()
-    for n in range(0, 50):
-        # "Distances": minkowski (def), wminkowski, mahalanobis
-        # scores = cross_val_score(KNeighborsRegressor(n_neighbors=n, metric='mahalanobis',
-        #                                              metric_params={'V': np.cov(x_input_knn.T)}), x_input_knn, y_knn,
-        #                          scoring='neg_mean_squared_error', cv=5)
-        scores = cross_val_score(KNeighborsRegressor(n_neighbors=n, metric='minkowski'), x_input_knn, y_knn,
+    max_neigh = min(NUM_SAMPLES, 50) - 1
+    for n in range(0, max_neigh):
+        scores = cross_val_score(KNeighborsRegressor(n_neighbors=n), x_input_knn, y_knn,
                                  scoring='neg_mean_squared_error', cv=5)
         list_scores.append(np.abs(scores.mean()))
         print(f"====> {n} <======")
@@ -338,11 +376,18 @@ if __name__ == '__main__':
     # ========================> Imputation (CVAE)
     path_test = os.path.join(results_folder, f"CVAE_{LR}_L{LATENT_DIM}_P{PARAM}")
 
-    DataSet_CVAE = DummyDataset_CVAE(
-        DataSet.missing_data,
-        # conditional=DataSet.cond_data,
-        conditional=torch.cat((DataSet.cond_data, DataSet.input_data), dim=1),
-    )
+    if COND_DIM > 0:
+        DataSet_CVAE = DummyDataset_CVAE(
+            DataSet.missing_data,
+            # conditional=DataSet.cond_data,
+            conditional=torch.cat((DataSet.cond_data, DataSet.input_data), dim=1),
+        )
+    else:
+        DataSet_CVAE = DummyDataset_CVAE(
+            DataSet.missing_data,
+            # conditional=DataSet.cond_data,
+            conditional=DataSet.input_data,
+        )
 
     if BATCH_SIZE == 0:
         train_loader_cvae = DataLoader(DataSet_CVAE, batch_size=len(train_idx), sampler=train_sampler)
@@ -389,8 +434,12 @@ if __name__ == '__main__':
     model_cvae.eval()
 
     # ========================> Regression (GP)
-    cvae_pred = model_cvae.forward(torch.zeros_like(DataSet.missing_data),
-                                   torch.cat((DataSet.cond_data, DataSet.input_data), dim=1))
+    if COND_DIM > 0:
+        cvae_pred = model_cvae.forward(torch.zeros_like(DataSet.missing_data),
+                                       torch.cat((DataSet.cond_data, DataSet.input_data), dim=1))
+    else:
+        cvae_pred = model_cvae.forward(torch.zeros_like(DataSet.missing_data),
+                                       DataSet.input_data)
     cvae_pred = cvae_pred[2]
 
     path_test = os.path.join(results_folder, f"GP_Reg_{KERNEL}_{LR}")
@@ -407,28 +456,54 @@ if __name__ == '__main__':
         train_loader_reg = DataLoader(DataSet_Reg, batch_size=BATCH_SIZE, sampler=train_sampler)
         test_loader_reg = DataLoader(DataSet_Reg, batch_size=len(test_idx), sampler=test_sampler)
 
-    # Train the model
-    gp_model = RegressionGP(init_sigma=SIGMA_GP,
-                            init_lamda=LAMDA_GP,
-                            init_noise=NOISE_GP,
-                            init_mean=MEAN_GP,
-                            input_dim=X.shape[1],
-                            output_dim=Y.shape[1],
-                            kernel=f"{KERNEL}")
-    # gp_model.add_prior("sigma", prior={'mean': tensor([0]), 'logvar': tensor([1])})  # Weak prior
+    if Reg == "GP":
+        # Train the model
+        gp_model = RegressionGP(init_sigma=SIGMA_GP,
+                                init_lamda=LAMDA_GP,
+                                init_noise=NOISE_GP,
+                                init_mean=MEAN_GP,
+                                input_dim=X.shape[1],
+                                output_dim=Y.shape[1],
+                                kernel=f"{KERNEL}")
+        # gp_model.add_prior("sigma", prior={'mean': tensor([0]), 'logvar': tensor([1])})  # Weak prior
 
-    optim_options = {'epochs': EPOCHS,
-                     'load_previous': LOAD_PREVIOUS,
-                     'print_epochs': PRINT_EPOCHS,
-                     'lr': LR,
-                     'kernel': KERNEL,
-                     'hp_params': {'lr': LR, 'kernel': KERNEL},  # Hyper-parameters to give to the tensorbaord
-                     }
+        optim_options = {'epochs': EPOCHS*2,
+                         'load_previous': LOAD_PREVIOUS,
+                         'print_epochs': PRINT_EPOCHS,
+                         'lr': LR,
+                         'kernel': KERNEL,
+                         'hp_params': {'lr': LR, 'kernel': KERNEL},  # Hyper-parameters to give to the tensorbaord
+                         }
 
-    optimizer = optim.Adam(gp_model.parameters(), lr=LR, weight_decay=0)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=LR_DECAY, gamma=0.1)
-    train_gp(gp_model, optimizer, path_test, train_loader_reg, test_loader_reg, optim_options)
-    gp_model.eval()
+        optimizer = optim.Adam(gp_model.parameters(), lr=LR, weight_decay=0)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=LR_DECAY, gamma=0.1)
+        train_gp(gp_model, optimizer, path_test, train_loader_reg, test_loader_reg, optim_options)
+        gp_model.eval()
+    else:
+        # Try a linear regression
+        gp_model = torch.nn.Linear(MISSING_DIM+INPUT_DIM, OUTPUT_DIM, bias=BIAS)
+        optimizer = optim.Adam(gp_model.parameters(), lr=LR, weight_decay=0)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=LR_DECAY, gamma=0.1)
+
+        from hdcob.utilities.metrics import mse
+        for epoch in range(0, EPOCHS):
+            gp_model.train()
+
+            for batch_idx, data in enumerate(train_loader_reg):
+                x_data = data['x'].to(DEVICE)
+                y_data = data['y'].to(DEVICE)
+
+                # with torch.autograd.detect_anomaly():
+                optimizer.zero_grad()
+                Y_pred = gp_model.forward(x_data)
+                loss = mse(Y_pred, y_data)
+                loss.backward()
+                optimizer.step()
+
+            if scheduler is not None:
+                scheduler.step()
+
+        gp_model.eval()
 
     # ========================> Median
     median_value = DataSet.missing_data[train_idx].median(dim=0)[0]
@@ -438,18 +513,28 @@ if __name__ == '__main__':
 
     # ========================> CVAE + GP
     # cvae_pred = model_cvae.forward(DataSet.missing_data[test_idx], DataSet.cond_data[test_idx])
-    cvae_pred = model_cvae.forward(torch.zeros_like(DataSet.missing_data[test_idx]),
-                                   torch.cat((DataSet.cond_data[test_idx], DataSet.input_data[test_idx]), dim=1))
+    if COND_DIM > 0:
+        cvae_pred = model_cvae.forward(torch.zeros_like(DataSet.missing_data[test_idx]),
+                                       torch.cat((DataSet.cond_data[test_idx], DataSet.input_data[test_idx]), dim=1))
+    else:
+        cvae_pred = model_cvae.forward(torch.zeros_like(DataSet.missing_data[test_idx]),
+                                       DataSet.input_data[test_idx])
     cvae_pred = cvae_pred[2]
 
     X_test = torch.cat((DataSet.input_data[test_idx], tensor(cvae_pred)), dim=1)
-    cvae_gp_pred, _ = gp_model.predict(X_test)
+    if Reg == "GP":
+        cvae_gp_pred, _ = gp_model.predict(X_test)
+    else:
+        cvae_gp_pred = gp_model(X_test)
 
     # ========================> KNN + GP
     gp_model.eval()
     y_pred_knn = knn_neigh.predict(x_input_knn_test)
     X_test = torch.cat((DataSet.input_data[test_idx], tensor(y_pred_knn)), dim=1)
-    knn_gp_pred, _ = gp_model.predict(X_test)
+    if Reg == "GP":
+        knn_gp_pred, _ = gp_model.predict(X_test)
+    else:
+        knn_gp_pred = gp_model(X_test)
 
     # ==================================================================================================================
     # ========================================= Compute errors =========================================================
@@ -509,7 +594,9 @@ if __name__ == '__main__':
     err_ours_dim = pd.DataFrame(ours_se.cpu().data.numpy(), columns=list_missing_features)
     err_ours_dim["Index"] = "Ours"
 
-    imp_errors_dim = pd.concat([err_mean_dim, err_median_dim, err_knn_dim, err_cvi_dim, err_ours_dim], axis=0)
+    # imp_errors_dim = pd.concat([err_mean_dim, err_median_dim, err_knn_dim, err_cvi_dim, err_ours_dim], axis=0)
+    imp_errors_dim = pd.concat([err_knn_dim, err_cvi_dim, err_ours_dim], axis=0)
+    # imp_errors_dim = pd.concat([err_cvi_dim, err_ours_dim], axis=0)
 
     err_knn_gp_dim = pd.DataFrame(knn_gp_se.cpu().data.numpy(), columns=list_target_features)
     err_knn_gp_dim["Index"] = "KNN+GP"
@@ -553,50 +640,6 @@ if __name__ == '__main__':
     ax[0].set_ylabel("$log_{10}$(Squared Error)")
     ax[1].set_ylabel("$log_{10}$(Squared Error)")
     fig.savefig(os.path.join(results_folder, "figure_errors.png"))
-
-    # Mahalanobis distance
-    knn_mahn_missing = mahalanobis_distance(pd.DataFrame(data=DataSet.missing_data[test_idx].data.numpy()),
-                                            pd.DataFrame(data=y_pred_knn),
-                                            cov=np.cov(DataSet.missing_data[test_idx].data.numpy().T))
-
-    cvae_mahn_missing = mahalanobis_distance(pd.DataFrame(data=DataSet.missing_data[test_idx].data.numpy()),
-                                            pd.DataFrame(data=cvae_pred.data.numpy()),
-                                            cov=np.cov(DataSet.missing_data[test_idx].data.numpy().T))
-
-    ours_mahn_missing = mahalanobis_distance(pd.DataFrame(data=DataSet.missing_data[test_idx].data.numpy()),
-                                            pd.DataFrame(data=ours_miss.data.numpy()),
-                                            cov=np.cov(DataSet.missing_data[test_idx].data.numpy().T))
-
-    # Target data
-    knn_mahn_target = mahalanobis_distance(pd.DataFrame(data=DataSet.target_data[test_idx].data.numpy()),
-                                            pd.DataFrame(data=knn_gp_pred.data.numpy()),
-                                            cov=np.cov(DataSet.target_data[test_idx].data.numpy().T))
-
-    cvae_mahn_target = mahalanobis_distance(pd.DataFrame(data=DataSet.target_data[test_idx].data.numpy()),
-                                            pd.DataFrame(data=cvae_gp_pred.data.numpy()),
-                                            cov=np.cov(DataSet.target_data[test_idx].data.numpy().T))
-
-    ours_mahn_target = mahalanobis_distance(pd.DataFrame(data=DataSet.target_data[test_idx].data.numpy()),
-                                            pd.DataFrame(data=ours_target.data.numpy()),
-                                            cov=np.cov(DataSet.target_data[test_idx].data.numpy().T))
-
-    mahn_imp = np.concatenate((knn_mahn_missing, cvae_mahn_missing, ours_mahn_missing), axis=1)
-    mahn_target = np.concatenate((knn_mahn_target, cvae_mahn_target, ours_mahn_target), axis=1)
-
-    mean_mahn_imp = pd.DataFrame(data=[knn_mahn_missing.mean(), cvae_mahn_missing.mean(), ours_mahn_missing.mean()],
-                            index=["KNN", "CVAE", "Ours"]).T
-
-    mean_mahn_target = pd.DataFrame(data=[knn_mahn_target.mean(), cvae_mahn_target.mean(), ours_mahn_target.mean()],
-                            index=["KNN", "CVAE", "Ours"]).T
-
-    data_miss = pd.DataFrame(data=mahn_imp, columns=["KNN", "CVAE", "Ours"])
-    data_target = pd.DataFrame(data=mahn_target, columns=["KNN", "CVAE", "Ours"])
-    plt.figure()
-    sns.boxenplot(data=pd.melt(data_miss), x="variable", y="value")
-    plt.figure()
-    sns.boxenplot(data=pd.melt(data_target), x="variable", y="value")
-    scipy.stats.ttest_rel(data_miss[f"KNN"], data_miss[f"Ours"])[-1]
-    scipy.stats.ttest_rel(data_target[f"KNN"], data_target[f"Ours"])[-1]
 
     # Compute significance
     p_thres = 0.05

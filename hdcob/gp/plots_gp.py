@@ -106,6 +106,8 @@ def plot_predictions(model: torch.nn.Module,
     # if num_features > 1:
     #     shade = False
 
+    if len(cov_cond.shape) == 3: cov_cond = cov_cond.squeeze()
+    if len(mean_cond.shape) == 0: mean_cond = mean_cond.unsqueeze(0)
     mean_add_std = mean_cond + cov_cond.mm(torch.ones((mean_cond.shape[0], 1)).to(DEVICE))
     mean_sub_std = mean_cond - cov_cond.mm(torch.ones((mean_cond.shape[0], 1)).to(DEVICE))
 
@@ -236,7 +238,7 @@ def plot_correlations_gp(model: torch.nn.Module,
         if len(axes.shape) == 1: axes = np.expand_dims(axes, 1)
 
     if num_features == 1:
-        axes = [axes]
+        axes = np.asarray(axes)
 
     if y_names is None:
         y_names = [f"target_{ix}" for ix in range(model._output_dim)]
@@ -279,7 +281,7 @@ def plot_ard(model: torch.nn.Module,
             df_lamdas[t_var].loc[p_var] = 1 / np.exp(model._GP[ix_t].lamda[ix_p].data.numpy()[0])
         df_lamdas[t_var].loc[r"$\alpha$"] = np.exp(model._GP[ix_t].sigma.data.numpy()[0])
 
-    g = sns.catplot(data=pd.melt(df_lamdas.reset_index(), id_vars='index'), x="index", y="value", col="variable",
+    g = sns.catplot(data=pd.melt(df_lamdas.reset_index(), id_vars='index'), y="index", x="value", col="variable",
                     kind='bar', sharey=False)
     g.set_titles("{col_name}")
     g.set_xlabels("")

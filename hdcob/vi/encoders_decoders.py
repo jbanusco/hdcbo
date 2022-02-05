@@ -53,7 +53,8 @@ class EncoderGaussianHidden(nn.Module):
 
     def forward(self,
                 x: tensor):
-        h = torch.sigmoid(self.fc1(x))
+        # h = torch.sigmoid(self.fc1(x))
+        h = torch.relu(self.fc1(x))
         return self.fc21(h), self.fc22(h)
 
 
@@ -71,7 +72,8 @@ class EncoderGaussianHidden_ParamV(nn.Module):
 
     def forward(self,
                 x: tensor):
-        h = torch.sigmoid(self.fc1(x))
+        # h = torch.sigmoid(self.fc1(x))
+        h = torch.relu(self.fc1(x))
         return self.fc21(h), self.param
 
 
@@ -159,3 +161,29 @@ class DecoderGaussian_HiddenParamVar(EncoderGaussianHidden_ParamV):
                  init_value: float = -5.):
         """ Same structure as encoder with hidden layer and param for the variance """
         super(DecoderGaussian_HiddenParamVar, self).__init__(input_dim, hidden_dim, out_dim, bias, init_value)
+
+
+
+class DecoderIterative(nn.Module):
+    """  """
+    def __init__(self,
+                 input_dim: int,
+                 out_dim: int,
+                 bias=False,
+                 init_value: float = -5.):
+        super(DecoderIterative, self).__init__()
+        self._out_dim = out_dim
+        self.linears = nn.ModuleList([nn.Linear(input_dim+(i-1), 1,
+                                                bias=bias) for i in range(1, out_dim+1)])
+        self.param = nn.Parameter(tensor(1, out_dim).fill_(init_value), requires_grad=True)
+
+    def forward(self,
+                x: tensor):
+
+        x_out = torch.zeros((x.shape[0], self._out_dim))
+        for i, l in enumerate(self.linears):
+            x_out[:, i] = (l(torch.cat((x, x_out[:, :i]), dim=1))).squeeze()
+
+        return x_out, self.param
+
+

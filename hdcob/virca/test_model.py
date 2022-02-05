@@ -8,6 +8,7 @@ from hdcob.gp.plots_gp import plot_ard
 from hdcob.virca.plots_virca import plot_residual, plot_predictions, plot_boxplot_params, plot_correlations
 from hdcob.virca.generator_synthetic import SyntheticDataset
 from hdcob.virca.virca import VIRCA
+from hdcob.gp.gaussian_process import RegressionGP
 from hdcob.utilities.metrics import mae, mse
 from hdcob.config import *
 import argparse
@@ -94,8 +95,8 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
     missing_data = data['missing'].to(DEVICE)
     target_data = data['target'].to(DEVICE)
 
-    writer.add_graph(model, [input_data, target_data, missing_data, conditional_data])
-    writer.close()
+    # writer.add_graph(model, [input_data, target_data, missing_data, conditional_data])
+    # writer.close()
 
     losses = list();
     vi_loss = list(); gp_loss = list();
@@ -128,7 +129,10 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
             epoch = 0
             time_optim = 0
 
-        total_epochs = options.get('warm_up_kl', 0) + options.get('epochs', 0)
+        # epochs_reg = options.get('epochs', 0)
+        epochs_reg = options.get('warm_up_kl', 0)
+        # epochs_reg = 0
+        total_epochs = options.get('warm_up_kl', 0) + options.get('epochs', 0) + epochs_reg
         num_batches = len(train_loader)
         for epoch in range(epoch, total_epochs):
             model.train()
@@ -144,10 +148,10 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
 
             if epoch < options.get('warm_up_kl', 0):  # Train only in LL
                 model._VI.training = True
-                model._GP.training = False
+                model._Reg.training = False
             else:
                 model._VI.training = True
-                model._GP.training = True
+                model._Reg.training = True
 
             for batch_idx, data in enumerate(train_loader):
                 model.train()
@@ -159,15 +163,47 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
 
                 # with torch.autograd.detect_anomaly():
                 optimizer.zero_grad()
-                output = model.forward(input_data, target_data,
-                                       x_imp=missing_data,
-                                       x_cond=conditional_data)
-                loss_dict = model.loss(missing_data, target_data, output)
 
-                if epoch < options.get('warm_up_kl', 0):  # Train only in LL
+                if epoch < epochs_reg:
+                    model._Reg.training = True
+                    model._VI.training = False
+                    output = model.forward(input_data, target_data,
+                                           x_imp=missing_data,
+                                           x_cond=conditional_data)
+                    loss_dict = model.loss(missing_data, target_data, output)
+                    loss_dict['ll_gp'].backward()
+                elif epoch < options.get('warm_up_kl', epochs_reg) + epochs_reg:  # Train only in LL
+                    model._Reg.training = False
+                    model._VI.training = True
+                    output = model.forward(input_data, target_data,
+                                           x_imp=missing_data,
+                                           x_cond=conditional_data)
+                    loss_dict = model.loss(missing_data, target_data, output)
                     loss_dict['ll_vi'].backward()
+                    # loss_dict['total_vi'].backward()
+                    # model._Reg.training = True
+                    # model._VI.training = False
+                    # output = model.forward(input_data, target_data,
+                    #                        x_imp=missing_data,
+                    #                        x_cond=conditional_data)
+                    # loss_dict = model.loss(missing_data, target_data, output)
+                    # loss_dict['ll_gp'].backward()
                 else:
+                    model._Reg.training = True
+                    model._VI.training = True
+                    output = model.forward(input_data, target_data,
+                                           x_imp=missing_data,
+                                           x_cond=conditional_data)
+                    loss_dict = model.loss(missing_data, target_data, output)
                     loss_dict['total'].backward()
+
+                    # model._Reg.training = True
+                    # model._VI.training = False
+                    # output = model.forward(input_data, target_data,
+                    #                        x_imp=missing_data,
+                    #                        x_cond=conditional_data)
+                    # loss_dict = model.loss(missing_data, target_data, output)
+                    # loss_dict['total_gp'].backward()
 
                 running_loss += loss_dict['total'].item()
                 running_vi_loss += loss_dict['total_vi'].item()
@@ -281,9 +317,10 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
                 fig_corr_vi, fig_corr_gp = plot_correlations(model, input_data, target_data, x_cond=conditional_data,
                                                              x_miss=missing_data, save_folder=None)
 
-                if 'lamda' in model._GP._GP[0].multiple_params:
-                    fig_ard = plot_ard(model._GP, input_names=None, target_names=None)
-                    writer.add_figure('ARD', fig_ard, global_step=epoch + 1)
+                if type(model._Reg) == RegressionGP:
+                    if 'lamda' in model._Reg._GP[0].multiple_params:
+                        fig_ard = plot_ard(model._Reg, input_names=None, target_names=None)
+                        writer.add_figure('ARD', fig_ard, global_step=epoch + 1)
 
                 writer.add_figure('boxplot', fig_box.fig, global_step=epoch + 1)
                 writer.add_figure('latent', fig_lat, global_step=epoch + 1)
@@ -364,10 +401,6 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
     fig_corr_vi, fig_corr_gp = plot_correlations(model, input_data, target_data, x_cond=conditional_data,
                                                  x_miss=missing_data, save_folder=save_path)
 
-    if 'lamda' in model._GP._GP[0].multiple_params:
-        fig_ard = plot_ard(model._GP, input_names=None, target_names=None, save_path=os.path.join(save_path, "ARD.png"))
-        writer.add_figure('ARD', fig_ard, global_step=epoch + 1)
-
     # Try histogram
     for name, w in model.named_parameters():
         writer.add_histogram(name, w, epoch)
@@ -377,13 +410,17 @@ def train_virca(model, optimizer, save_path, train_loader, test_loader, options,
     writer.add_figure('latent', fig_lat, global_step=epoch + 1)
 
     writer.add_figure('prediction VI', fig_pred_vi, global_step=epoch + 1)
-    writer.add_figure('prediction GP', fig_pred_gp, global_step=epoch + 1)
-
     writer.add_figure('residual VI', fig_res_vi, global_step=epoch + 1)
-    writer.add_figure('residual GP', fig_res_gp, global_step=epoch + 1)
-
     writer.add_figure('correlation VI', fig_corr_vi, global_step=epoch + 1)
-    writer.add_figure('correlation GP', fig_corr_gp, global_step=epoch + 1)
+
+    if type(model._Reg) == RegressionGP:
+        writer.add_figure('prediction GP', fig_pred_gp, global_step=epoch + 1)
+        writer.add_figure('residual GP', fig_res_gp, global_step=epoch + 1)
+        writer.add_figure('correlation GP', fig_corr_gp, global_step=epoch + 1)
+
+        if 'lamda' in model._Reg._GP[0].multiple_params:
+            fig_ard = plot_ard(model._Reg, input_names=None, target_names=None, save_path=os.path.join(save_path, "ARD.png"))
+            writer.add_figure('ARD', fig_ard, global_step=epoch + 1)
 
     # Plot the loss
     fig, ax = plt.subplots(1, 1)

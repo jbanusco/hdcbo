@@ -73,8 +73,8 @@ def plot_predictions(model,
     pred = output[2]
     logvar = output[3]
 
-    mean_add_std = pred + 1*torch.sqrt(torch.exp(logvar))
-    mean_sub_std = pred - 1*torch.sqrt(torch.exp(logvar))
+    # mean_add_std = pred + torch.ones_like(pred).mm(torch.sqrt(torch.exp(logvar)))
+    # mean_sub_std = pred - torch.ones_like(pred).mm(torch.sqrt(torch.exp(logvar)))
 
     num_dim = pred.shape[1]
     fig, axes = plt.subplots(num_dim, 1, figsize=(3*1, 3*num_dim), squeeze=False, sharex=False, sharey=False)
@@ -82,18 +82,18 @@ def plot_predictions(model,
     for ix in range(num_dim):
         axes[ix, 0].plot(data_x[:, ix].cpu().data.numpy(), pred[:, ix].cpu().data.numpy(), marker='o', ms=4,
                          label="Mean", linestyle='')
-        axes[ix, 0].plot(data_x[:, ix].cpu().data.numpy(), mean_add_std[:, ix].cpu().data.numpy(), marker='o',
-                         linestyle='', ms=1, label="Mean+Std")
-        axes[ix, 0].plot(data_x[:, ix].cpu().data.numpy(), mean_sub_std[:, ix].cpu().data.numpy(), marker='o',
-                         linestyle='', ms=1, label="Mean-Std")
+        # axes[ix, 0].plot(data_x[:, ix].cpu().data.numpy(), mean_add_std[:, ix].cpu().data.numpy(), marker='o',
+        #                  linestyle='', ms=1, label="Mean+Std")
+        # axes[ix, 0].plot(data_x[:, ix].cpu().data.numpy(), mean_sub_std[:, ix].cpu().data.numpy(), marker='o',
+        #                  linestyle='', ms=1, label="Mean-Std")
 
         min_val = scipy.percentile(data_x[:, ix], 1)
         max_val = scipy.percentile(data_x[:, ix], 99)
         axes[ix, 0].set_xlim([min_val, max_val])
 
-        min_val = scipy.percentile(mean_sub_std[:, ix].cpu().data.numpy(), 1)
-        max_val = scipy.percentile(mean_add_std[:, ix].cpu().data.numpy(), 99)
-        axes[ix, 0].set_ylim([min_val, max_val])
+        # min_val = scipy.percentile(mean_sub_std[:, ix].cpu().data.numpy(), 1)
+        # max_val = scipy.percentile(mean_add_std[:, ix].cpu().data.numpy(), 99)
+        # axes[ix, 0].set_ylim([min_val, max_val])
 
         if features_names is None:
             axes[ix, 0].set_xlabel(f"Rec f{ix}")

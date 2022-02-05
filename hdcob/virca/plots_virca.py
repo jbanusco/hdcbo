@@ -11,6 +11,7 @@ from hdcob.gp.plots_gp import plot_correlations_gp
 from hdcob.vi.plots_vi import plot_residual as plot_residual_vi
 from hdcob.vi.plots_vi import plot_predictions as plot_predictions_vi
 from hdcob.vi.plots_vi import plot_correlations_vi
+from hdcob.gp.gaussian_process import RegressionGP
 from hdcob.config import *
 
 
@@ -112,12 +113,16 @@ def plot_predictions(model,
 
     x_names = input_features_names + miss_features_names
 
-    if y.shape[1] > 1:
-        fig_pred_gp, _ = plot_multiple_predictions_gp(model._GP, x_train, y, num_samples=0, shade=True,
+    # if y.shape[1] > 1:
+    if type(model._Reg) == RegressionGP:
+        fig_pred_gp, _ = plot_multiple_predictions_gp(model._Reg, x_train, y, num_samples=0, shade=True,
                                                       x_names=x_names, save_filename=save_gp_filename)
     else:
-        fig_pred_gp, _ = plot_predictions_gp(model._GP, x_train, y, num_samples=0, shade=True,
-                                             save_filename=save_gp_filename, x_names=x_names)
+        fig_pred_gp = []
+
+    # else:
+    #     fig_pred_gp, _ = plot_predictions_gp(model._GP, x_train, y, num_samples=0, shade=True,
+    #                                          save_filename=save_gp_filename, x_names=x_names)
 
     return fig_pred_vi, fig_pred_gp
 
@@ -161,12 +166,16 @@ def plot_residual(model,
         mu, logvar, x_hat_mu, x_hat_logvar = model._VI(*input_data)
         x_train = torch.cat((x, x_hat_mu), dim=1)
 
-    if y.shape[1] > 1:
-        fig_res_gp, _ = plot_multiple_residual_gp(model._GP, x_train, y,
+    # if y.shape[1] > 1:
+    if type(model._Reg) == RegressionGP:
+        fig_res_gp, _ = plot_multiple_residual_gp(model._Reg, x_train, y,
                                                   x_names=x_names, save_filename=save_gp_filename)
     else:
-        fig_res_gp, _ = plot_residual_gp(model._GP, x_train, y, save_filename=save_gp_filename,
-                                         x_names=x_names)
+        fig_res_gp = []
+
+    # else:
+    #     fig_res_gp, _ = plot_residual_gp(model._GP, x_train, y, save_filename=save_gp_filename,
+    #                                      x_names=x_names)
 
     return fig_res_vi, fig_res_gp
 
@@ -209,10 +218,13 @@ def plot_correlations(model,
         mu, logvar, x_hat_mu, x_hat_logvar = model._VI(*input_data)
         x_train = torch.cat((x, x_hat_mu), dim=1)
 
-    fig_corr_gp, _ = plot_correlations_gp(model._GP,
-                                          x_train, y,
-                                          save_filename=save_gp_filename,
-                                          x_names=target_features_names,
-                                          y_names=pred_features_names)
+    if type(model._Reg) == RegressionGP:
+        fig_corr_gp, _ = plot_correlations_gp(model._Reg,
+                                              x_train, y,
+                                              save_filename=save_gp_filename,
+                                              x_names=target_features_names,
+                                              y_names=pred_features_names)
+    else:
+        fig_corr_gp = []
 
     return fig_corr_vi, fig_corr_gp

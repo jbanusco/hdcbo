@@ -1,6 +1,7 @@
 import pandas as pd
 from torch import nn
 from torch.distributions import kl_divergence, Normal
+from hdcob.utilities.metrics import ListMetric
 from hdcob.gp.kernels import kernel_rbf, kernel_linear, kernel_mult_lamdas, kernel_mult_noise, kernel_rbf_mult_params
 from hdcob.config import *
 
@@ -33,7 +34,7 @@ def likelihood_gp(mean_pred, covariance_pred, target):
     # torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_pred.unsqueeze(0),
     #                                                            covariance_matrix=covariance_pred).log_prob(target)
 
-    return ll
+    return ll / num_samples
 
 
 def kl_prior(prior, mean_q, logvar_q):
@@ -338,6 +339,9 @@ class GP_HighD(GeneralGP):
         # Dimension of the GP
         self._dim = num_inp_features
 
+        # Losses list
+        self.losses_list = ListMetric()
+
         self.sigma = nn.Parameter(tensor([init_sigma]), requires_grad=True)
         self.mu = nn.Parameter(tensor([init_mean]), requires_grad=False)
 
@@ -422,6 +426,8 @@ class GP_HighD(GeneralGP):
                      'kl': kl,
                      'total': -ll+kl}
 
+        self.losses_list.update(loss_dict['total'].item())
+
         return loss_dict
 
     @staticmethod
@@ -440,6 +446,7 @@ class GP_HighD(GeneralGP):
         :param y: Training observations
         :return:
         """
+
         if "lamda" in self.list_parameters.keys():
             if "lamda" in self.multiple_params:
                 # lamda = [self.reparameterize(self.lamda[ix], self.list_parameters["lamda"][ix]) for ix in range(self._dim)]
@@ -535,6 +542,8 @@ class RegressionGP(GeneralGP):
                                            init_noise=init_noise, num_inp_features=self._input_dim, kernel=kernel)
                                   for ix in range(self._output_dim)])
 
+        # self.L = torch.randn(self._iput_dim, self._input_dim, requires_grad=True)
+
     def add_prior(self,
                   param_name: str,
                   prior: dict):
@@ -546,21 +555,17 @@ class RegressionGP(GeneralGP):
 
         def_value = tensor([0])
 
-        # loss = tensor([0])
-        # ll = tensor([0])
-        # kl = tensor([0])
         loss = tensor(torch.zeros(1, self._output_dim))
         ll = tensor(torch.zeros(1, self._output_dim))
         kl = tensor(torch.zeros(1, self._output_dim))
 
         num_samples = target.shape[0]
         for ix in range(self._output_dim):
-            # out_gp = (predicted[0][ix], predicted[1][ix])
-            out_gp = (predicted[0][ix], predicted[1][:, :, ix])
+            try:
+                out_gp = (predicted[0][ix], predicted[1][:, :, ix])
+            except IndexError:
+                out_gp = (predicted[0].unsqueeze(0), predicted[1][:, :, ix])
             losses_gp = self._GP[ix].loss(out_gp, target[:, ix])
-            # loss += losses_gp['total']
-            # ll += losses_gp.get('ll', def_value)
-            # kl += losses_gp.get('kl', def_value)
             loss[0, ix] = losses_gp['total']
             ll[0, ix] = losses_gp.get('ll', def_value)
             kl[0, ix] = losses_gp.get('kl', def_value)
@@ -570,9 +575,7 @@ class RegressionGP(GeneralGP):
         loss_dict = dict(total=total,
                          ll_gp=ll.sum(),
                          kl_gp=kl.sum())
-        # loss_dict = dict(total=loss,
-        #                  ll_gp=ll,
-        #                  kl_gp=kl)
+
         return loss_dict
 
     def forward(self,
@@ -585,13 +588,24 @@ class RegressionGP(GeneralGP):
         y_mu = tensor(torch.zeros(1, self._output_dim))
         # y_cov_matrix = [tensor() for ix in range(self._output_dim)]
         y_cov_matrix = tensor(torch.zeros(num_samples, num_samples, self._output_dim))
+        num_converged = 0
         for ix in range(self._output_dim):
-            y_ix, cov_matrix_ix = self._GP[ix](x, y[:, ix])
+            if self._GP[ix].losses_list.has_converged():
+                num_converged += 1
+                with torch.no_grad():
+                    y_ix, cov_matrix_ix = self._GP[ix](x, y[:, ix])
+            else:
+                y_ix, cov_matrix_ix = self._GP[ix](x, y[:, ix])
             y_mu[:, ix] = y_ix
             # y_cov_matrix[ix] = cov_matrix_ix
             y_cov_matrix[:, :, ix] = cov_matrix_ix
             # y_mu.append(y_ix)
             # y_cov_matrix.append(cov_matrix_ix)
+
+        if num_converged == self._output_dim:
+            self.has_converged = True
+        else:
+            self.has_converged = False
 
         return y_mu.squeeze(), y_cov_matrix
 
@@ -624,3 +638,118 @@ class RegressionGP(GeneralGP):
 
         for ix in range(self._output_dim):
             self._GP[ix].load_training_info(training_info[ix])
+
+
+# import Gpy
+#
+#
+# class RegressionGP(GeneralGP):
+#     """ Multiple inputs and multiple outputs """
+#     def __init__(self,
+#                  init_sigma: float = 0.1,
+#                  init_lamda: float = 0.1,
+#                  init_noise: float = 0.1,
+#                  init_mean: float = 0,
+#                  input_dim: int = 1,
+#                  output_dim: int = 1,
+#                  kernel="RBF"):
+#         super(RegressionGP, self).__init__()
+#
+#         """ Inspired in the SLFM model """
+#
+#         self._input_dim = input_dim
+#         self._output_dim = output_dim  # Tasks
+#
+#         # Initialize GPs list
+#         self.kernel = kernel_mult_lamdas
+#
+#         # For each GP
+#         # self.mu = nn.Parameter(tensor([init_mean]), requires_grad=False)
+#         self.mu = torch.ones(self._output_dim, 1, requires_grad=False) * init_mean
+#         # self.sigma = nn.ParameterList([nn.Parameter(tensor([init_sigma]), requires_grad=True) for ix in range(self._output_dim)])
+#         self.sigma = torch.ones(self._output_dim, 1, requires_grad=True) * init_sigma
+#         # self.noise = nn.ParameterList([nn.Parameter(tensor([init_noise]), requires_grad=True) for ix in range(self._output_dim)])
+#         self.noise = torch.ones(self._output_dim, 1, requires_grad=True) * init_noise
+#         self.lamdas = nn.ModuleList([nn.ParameterList([nn.Parameter(tensor([init_lamda]), requires_grad=True) for ix in range(self._input_dim)]) for ix in range(self._output_dim)])
+#
+#         # For the Kf [one for each dimension]
+#         self.L = torch.randn(self._output_dim, self._output_dim, self._input_dim, requires_grad=True)
+#
+#     def loss(self, predicted, target):
+#         """ Loss function """
+#
+#         # Need to put target in column stack
+#         target = target.view(-1)
+#         # mean = predicted[0]
+#         mean = tensor([0])
+#         ll = likelihood_gp(mean, predicted[1], target)
+#
+#         loss_dict = dict(total=ll,
+#                          ll_gp=ll,
+#                          kl_gp=torch.tensor([0]))
+#
+#         return loss_dict
+#
+#     @staticmethod
+#     def kronecker(A, B):
+#         return torch.einsum("ab,cd->acbd", A, B).view(A.size(0) * B.size(0), A.size(1) * B.size(1))
+#
+#     def forward(self,
+#                 x: tensor,
+#                 y: tensor):
+#         """ Forward """
+#
+#         # Compute covariance for each task
+#         num_samples = x.shape[0]
+#         cov_list = tensor(num_samples, num_samples, self._output_dim)
+#         big_cov = torch.zeros(self._output_dim * num_samples, self._output_dim * num_samples)
+#
+#         for ix in range(self._output_dim):
+#             cov_list[:, :, ix] = self.kernel(x, x, self.sigma[ix], self.lamdas[ix], self.noise[ix], add_noise=True)
+#             cov_f = self.L[:, :, ix].mm(self.L[:, :, ix].T)
+#             big_cov += self.kronecker(cov_f, cov_list[:, :, ix])
+#
+#         sqrt_cov = torch.cholesky(big_cov)
+#
+#         if self.training:
+#             # Store the info.
+#             self.cov_train = big_cov.detach()
+#             self.sqrt_cov = sqrt_cov.detach()
+#             self.x_train = x  # Store training locations
+#             self.y_train = y.squeeze()
+#
+#         return self.mu, big_cov
+#
+#     def predict(self,
+#                 x: tensor):
+#         """ Predict """
+#
+#         # Compute cov. matrix between training and test points / [Ns_test, Ns_train]
+#         cov_test_train = self.kernel(x, self.x_train, self.sigma, self.lamda, noise=self.noise,
+#                                      add_noise=False)
+#
+#         diff = self.y_train - self.mu
+#         tmp_a, _ = torch.solve(diff.unsqueeze(1), self.sqrt_cov)  # [Ns_train, 1]
+#         tmp_b, _ = torch.solve(cov_test_train.T, self.sqrt_cov)  # [Ns_train, Ns_test]
+#
+#         mean_cond = (self.mu + torch.mm(tmp_b.T, tmp_a)).squeeze()  # [Ns_test, 1]
+#
+#         cov_test = self.kernel(x, x, self.sigma, self.lamda, noise=self.noise, add_noise=True)  # [Ns_test, Ns_test]
+#
+#         cov_cond = cov_test - torch.mm(tmp_b.T, tmp_b)  # [Ns_test, Ns_test]
+#
+#         return y_pred, cov_cond
+#
+#     def save_training_info(self):
+#         """ Generate list of dictionaries with the training information """
+#
+#         training_info = [self._GP[ix].save_training_info() for ix in range(self._output_dim)]
+#         return training_info
+#
+#     def load_training_info(self,
+#                            training_info: list):
+#         """ Since for the prediction we need information regarding the training data we will need to load it.
+#         Not only the parameters of the model """
+#
+#         for ix in range(self._output_dim):
+#             self._GP[ix].load_training_info(training_info[ix])

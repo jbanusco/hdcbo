@@ -6,7 +6,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 from hdcob.utilities.metrics import mae, mse
 from hdcob.vi.plots_vi import plot_residual, plot_latent, plot_predictions, plot_strip
-from hdcob.vi.vi_models import VAE, CVAE
+from hdcob.vi.vi_models import VAE, CVAE, ICVAE
 from hdcob.vi.generator_synthetic import SyntheticDataset
 from hdcob.config import *
 
@@ -84,7 +84,7 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
     input_data = data['input'].to(DEVICE)
     if type(model) == VAE:
         writer.add_graph(model, [input_data])
-    elif type(model) == CVAE:
+    elif type(model) == CVAE or type(model) == ICVAE:
         cond_data = data['conditional'].to(DEVICE)
         writer.add_graph(model, [input_data, cond_data])
     else:
@@ -119,7 +119,7 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
                 recon_data = data['input'].to(DEVICE)
                 if type(model) == VAE:
                     input_data = [recon_data]
-                elif type(model) == CVAE:
+                elif type(model) == CVAE or type(model) == ICVAE:
                     cond_data = data['conditional'].to(DEVICE)
                     input_data = [recon_data, cond_data]
                 else:
@@ -155,7 +155,7 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
             if (epoch + 1) % int(options['print_epochs']) == 0:
                 # Metrics
                 log.info(f"\nEpoch: {epoch + 1}\tLoss: {running_loss:.6f}\tMSE: {running_mse:.6f}\tMAE: {running_mae:.6f}")
-
+                [print(f'{key}: {loss[f"{key}"]}') for key in loss.keys()]
                 # Add it to the tensorboard
                 for key in loss.keys():
                     writer.add_scalar(f'{key}', loss[f"{key}"], epoch)
@@ -183,7 +183,7 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
                     data = iter(test_loader).next()
                     if type(model) == VAE:
                         input_data = [data['input'].to(DEVICE)]
-                    elif type(model) == CVAE:
+                    elif type(model) == CVAE or type(model) == ICVAE:
                         input_data = [data['input'].to(DEVICE), data['conditional'].to(DEVICE)]
                     else:
                         raise RuntimeError(f"Unexpected model type: {type(model)}")
@@ -222,7 +222,7 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
     recon_data_test = data['input'].to(DEVICE)
     if type(model) == VAE:
         input_data = [data['input'].to(DEVICE)]
-    elif type(model) == CVAE:
+    elif type(model) == CVAE or type(model) == ICVAE:
         input_data = [data['input'].to(DEVICE), data['conditional'].to(DEVICE)]
     else:
         raise RuntimeError(f"Unexpected model type: {type(model)}")
@@ -236,8 +236,8 @@ def train_vi(model, optimizer, save_path, train_loader, test_loader, options,
                         'test_mse': test_mse, 'test_mae': test_mae})
 
     # Try histogram
-    for name, w in model.named_parameters():
-        writer.add_histogram(name, w, epoch)
+    # for name, w in model.named_parameters():
+    #     writer.add_histogram(name, w, epoch)
 
     # Residual's boxplot
     fig_lat = plot_latent(model, input_data, save_path=os.path.join(save_path, "latent.png"))
