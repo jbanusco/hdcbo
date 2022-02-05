@@ -24,7 +24,8 @@ class VIRCA(nn.Module):
                  kernel: str = "RBF_ML",
                  prior_noise: dict = None,
                  use_param: bool = False,
-                 reg: str = "GP"):
+                 reg: str = "GP",
+                 device: str="cpu"):
         """
         We expect data standardized [0 mean, unit variance]
         :param input_dim: Fixed input data in the GP regression (observed data)\
@@ -44,7 +45,7 @@ class VIRCA(nn.Module):
         :param use_param: Use a parameter or not for the decoder variance
         """
         super(VIRCA, self).__init__()
-
+        self.device = device
         # VI
         self._miss_dim = miss_dim
         self._cond_dim = cond_dim
@@ -70,7 +71,7 @@ class VIRCA(nn.Module):
             #                 init_noise=init_noise_vi, prior_noise=prior_noise, param=use_param)
             self._VI = CVAE(self._miss_dim, self._cond_dim+self._input_dim, hidden_dim=hidden_dim,
                             latent_dim=self._latent_dim, bias=bias,
-                            init_noise=init_noise_vi, prior_noise=prior_noise, param=use_param)
+                            init_noise=init_noise_vi, prior_noise=prior_noise, param=use_param, device=self.device)
             # self._VI = ICVAE(self._miss_dim, self._cond_dim + self._input_dim, hidden_dim=hidden_dim,
             #                  latent_dim=self._latent_dim, bias=bias,
             #                  init_noise=init_noise_vi, prior_noise=prior_noise, param=use_param)

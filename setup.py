@@ -9,7 +9,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='hdcob',
-    version='0.0.2',
+    version='0.0.21',
     url='https://gitlab.inria.fr/epione/hdcob',
     author='Jaume Banus',
     author_email='jaume.banus-cobo@inria.fr',

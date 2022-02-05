@@ -200,10 +200,12 @@ class CVAE(VAE):
                                    latent_dim=latent_dim,
                                    hidden_dim=hidden_dim,
                                    bias=bias,
-                                   param=param)
+                                   param=param,
+                                   device=device)
 
         self._input_dim = input_dim
         self._cond_dim = cond_dim
+        self.device = device
 
         # self._decoder = DecoderIterative(self._latent_dim + self._cond_dim,
         #                                  self._input_dim, bias=bias,
@@ -282,7 +284,7 @@ class CVAE(VAE):
         x_mu, x_logvar = self._decoder(z)
         # L = self.L(z)
 
-        M = torch.zeros((self._input_dim, self._input_dim))
+        M = torch.zeros((self._input_dim, self._input_dim)).to(self.device)
         tril_indices = torch.tril_indices(row=self._input_dim, col=self._input_dim, offset=0)
         M[tril_indices[0], tril_indices[1]] = self.L
 
