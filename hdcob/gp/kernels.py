@@ -69,13 +69,14 @@ def kernel_mult_lamdas(x1: tensor,
                        sigma: tensor,
                        lamda: List,
                        noise: tensor = EPS_NOISE,
-                       add_noise=True):
+                       add_noise=True, device="cpu"):
 
     num_samples_x1 = x1.shape[0]
     num_samples_x2 = x2.shape[0]
     num_features = x1.shape[1]
 
-    sum_diffs = tensor(torch.zeros((num_samples_x1, num_samples_x2))).to(DEVICE)
+    #sum_diffs = tensor(torch.zeros((num_samples_x1, num_samples_x2))).to(DEVICE)
+    sum_diffs = torch.zeros((num_samples_x1, num_samples_x2)).to(device)
 
     # lamdas = tensor([2 * torch.exp(lamda[ix]) ** 2 for ix in range(num_features)])
     # a = (x1.unsqueeze(1) - x2.unsqueeze(0)) ** 2
@@ -85,13 +86,13 @@ def kernel_mult_lamdas(x1: tensor,
     for ix in range(num_features):
         diff = (x1[:, ix].unsqueeze(dim=1) - x2[:, ix].unsqueeze(dim=0)) ** 2
         res = -diff / (torch.exp(lamda[ix]))
-        sum_diffs += res
+        sum_diffs += res.to(device)
 
-    U = torch.exp(sigma) * torch.exp(sum_diffs)
+    U = torch.exp(sigma).to(device) * torch.exp(sum_diffs)
 
     # Add eps in the diagonal
     if add_noise:
-        K = U + torch.eye(num_samples_x1).to(DEVICE) * (torch.exp(noise) + EPS_NOISE)
+        K = U + torch.eye(num_samples_x1).to(device) * (torch.exp(noise).to(device) + EPS_NOISE.to(device))
     else:
         K = U
 

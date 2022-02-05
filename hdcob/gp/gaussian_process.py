@@ -326,7 +326,7 @@ class GP_HighD(GeneralGP):
                  init_noise: float = 0.1,
                  init_mean: float = 0,
                  num_inp_features: int = 1,
-                 kernel="RBF_M"):
+                 kernel="RBF_M", device="cpu"):
         """
         :param init_sigma:  Initial amplitude of the RBF kernel
         :param init_lamda:   Initial lengthscale of the RBF kernel
@@ -338,6 +338,7 @@ class GP_HighD(GeneralGP):
 
         # Dimension of the GP
         self._dim = num_inp_features
+        self.device = device
 
         # Losses list
         self.losses_list = ListMetric()
@@ -508,12 +509,12 @@ class GP_HighD(GeneralGP):
 
         # Need to solve inverse AX=B, to find X -[Ns_train, 1] - Do it for both sides to get the full expression.
         diff = self.y_train - self.mu
-        tmp_a, _ = torch.solve(diff.unsqueeze(1), self.sqrt_cov)  # [Ns_train, 1]
-        tmp_b, _ = torch.solve(cov_test_train.T, self.sqrt_cov)  # [Ns_train, Ns_test]
+        tmp_a, _ = torch.solve(diff.unsqueeze(1).to(self.device), self.sqrt_cov.to(self.device))  # [Ns_train, 1]
+        tmp_b, _ = torch.solve(cov_test_train.T.to(self.device), self.sqrt_cov.to(self.device))  # [Ns_train, Ns_test]
 
         mean_cond = (self.mu + torch.mm(tmp_b.T, tmp_a)).squeeze()  # [Ns_test, 1]
 
-        cov_test = self.kernel(x, x, self.sigma, self.lamda, noise=self.noise, add_noise=True)  # [Ns_test, Ns_test]
+        cov_test = self.kernel(x, x, self.sigma, self.lamda, noise=self.noise, add_noise=True, device=self.device)  # [Ns_test, Ns_test]
 
         cov_cond = cov_test - torch.mm(tmp_b.T, tmp_b)  # [Ns_test, Ns_test]
 
@@ -531,7 +532,7 @@ class RegressionGP(GeneralGP):
                  init_mean: float = 0,
                  input_dim: int = 1,
                  output_dim: int = 1,
-                 kernel="RBF"):
+                 kernel="RBF", device="cpu"):
         super(RegressionGP, self).__init__()
 
         self._input_dim = input_dim
@@ -539,10 +540,11 @@ class RegressionGP(GeneralGP):
 
         # Initialize GPs list
         self._GP = nn.ModuleList([GP_HighD(init_sigma=init_sigma, init_lamda=init_lamda, init_mean=init_mean,
-                                           init_noise=init_noise, num_inp_features=self._input_dim, kernel=kernel)
+                                           init_noise=init_noise, num_inp_features=self._input_dim, kernel=kernel, device=device)
                                   for ix in range(self._output_dim)])
 
         # self.L = torch.randn(self._iput_dim, self._input_dim, requires_grad=True)
+        self.device = device
 
     def add_prior(self,
                   param_name: str,
@@ -555,9 +557,9 @@ class RegressionGP(GeneralGP):
 
         def_value = tensor([0])
 
-        loss = tensor(torch.zeros(1, self._output_dim))
-        ll = tensor(torch.zeros(1, self._output_dim))
-        kl = tensor(torch.zeros(1, self._output_dim))
+        loss = torch.zeros((1, self._output_dim)).to(self.device)
+        ll = torch.zeros((1, self._output_dim)).to(self.device)
+        kl = torch.zeros((1, self._output_dim)).to(self.device)
 
         num_samples = target.shape[0]
         for ix in range(self._output_dim):
@@ -585,9 +587,11 @@ class RegressionGP(GeneralGP):
         # y_mu = []
         # y_cov_matrix = []
         num_samples = x.shape[0]
-        y_mu = tensor(torch.zeros(1, self._output_dim))
+        #y_mu = tensor(torch.zeros((1, self._output_dim))).to(self.device)
+        y_mu = torch.zeros((1, self._output_dim)).to(self.device)
         # y_cov_matrix = [tensor() for ix in range(self._output_dim)]
-        y_cov_matrix = tensor(torch.zeros(num_samples, num_samples, self._output_dim))
+        #y_cov_matrix = tensor(torch.zeros(num_samples, num_samples, self._output_dim)).to(self.device)
+        y_cov_matrix = torch.zeros((num_samples, num_samples, self._output_dim)).to(self.device)
         num_converged = 0
         for ix in range(self._output_dim):
             if self._GP[ix].losses_list.has_converged():
@@ -614,9 +618,9 @@ class RegressionGP(GeneralGP):
         """ Predict """
 
         num_samples = x.shape[0]
-        y_pred = tensor(torch.zeros(num_samples, self._output_dim))
+        y_pred = torch.zeros((num_samples, self._output_dim)).to(self.device)
         # cov_cond = [tensor() for ix in range(self._output_dim)]
-        cov_cond = tensor(torch.zeros(num_samples, num_samples, self._output_dim))
+        cov_cond = torch.zeros((num_samples, num_samples, self._output_dim)).to(self.device)
         for ix in range(self._output_dim):
             y_ix, cov_matrix_ix = self._GP[ix].predict(x)
             y_pred[:, ix] = y_ix

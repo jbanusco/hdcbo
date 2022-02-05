@@ -19,7 +19,7 @@ class ListMetric(object):
             try:
                 x_value =+ self.x_value[-1]
             except IndexError:
-                x_value = tensor([0])
+                x_value = tensor([0]).cpu()
         self.x_value = np.append(self.x_value, x_value)
         self.y_value = np.append(self.y_value, y_value)
 

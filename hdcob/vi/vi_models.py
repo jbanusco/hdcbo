@@ -294,7 +294,7 @@ class CVAE(VAE):
         # Ensure the diagonal entries are positive
         # M[torch.eye(self._input_dim, dtype=bool)] = torch.abs(torch.diag(M))
         M[torch.eye(self._input_dim, dtype=bool)] = torch.exp(torch.diag(M))
-        x_cov = self.kronecker(torch.eye(x.shape[0]), M.mm(M.T))  # + torch.diag(torch.exp(x_logvar.view(-1)))
+        x_cov = self.kronecker(torch.eye(x.shape[0]).to(self.device), M.mm(M.T))  # + torch.diag(torch.exp(x_logvar.view(-1)))
 
         # x_mu = x_mu.view(-1)
 

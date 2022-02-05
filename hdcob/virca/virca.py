@@ -88,7 +88,7 @@ class VIRCA(nn.Module):
 
             self._Reg = RegressionGP(init_sigma=init_sigma_gp, init_lamda=init_lamda_gp, init_mean=init_mean_gp,
                                      init_noise=init_noise_gp, input_dim=self._n_features, output_dim=self._target_dim,
-                                     kernel=kernel)
+                                     kernel=kernel, device=self.device)
         else:
             self._Reg = nn.Linear(self._miss_dim + self._input_dim, self._target_dim, bias=bias)
 
@@ -222,7 +222,7 @@ class VIRCA(nn.Module):
             raise RuntimeError(f"{error_msg}")
 
         if type(self._Reg) == RegressionGP:
-            y_mu, y_cov_matrix = self._Reg(X, y)
+            y_mu, y_cov_matrix = self._Reg(X.to(self.device), y.to(self.device))
         else:
             y_mu = self._Reg(X)
             y_cov_matrix = []
@@ -256,8 +256,7 @@ class VIRCA(nn.Module):
         # x_hat = torch.zeros((x.shape[0], self._miss_dim, num_samples))
         with torch.no_grad():
             # self._VI.training = False
-            x_dummy = tensor(torch.zeros(x.shape[0],
-                                         self._miss_dim))
+            x_dummy = torch.zeros((x.shape[0], self._miss_dim)).to(self.device)
             # In the VI model we will get the mean latent space (if not in training)
             # x_dummy = tensor(torch.randn_like(x_dummy))
             if self.condition:
